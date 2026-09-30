@@ -1,6 +1,7 @@
 """Enriquecimiento por internet: identifica el producto (nombre comercial, descripción, ficha y foto).
 
-Usa Claude con búsqueda web. Solo se envían datos del PRODUCTO (marca, modelo, descripciones que el
+Proveedores: OpenRouter (cualquier modelo: Gemini, GPT, DeepSeek, Qwen…, con el plugin de búsqueda web)
+o Anthropic directo (Claude con búsqueda web). Solo se envían datos del PRODUCTO (marca, modelo, descripciones que el
 equipo anuncia, puertos); nunca IPs, MACs, hostnames, números de serie, ubicaciones ni contactos.
 Los resultados se guardan en caché por huella de producto: dos equipos del mismo modelo cuestan una consulta.
 """
@@ -24,7 +25,22 @@ from .oui import cache_dir
 from .reconcile import is_generic_model, product_brand
 from .sync import DEVICE_TYPE_LABELS, clean_vendor
 
-DEFAULT_MODEL = "claude-opus-5-5"
+DEFAULT_MODEL = "claude-opus-5-5"  # proveedor Anthropic
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_DEFAULT_MODEL = "google/gemini-3.1-flash-lite"
+# Sugerencias para la interfaz (precio USD por millón de tokens de entrada/salida, catálogo 2026-09-30).
+# Se puede escribir cualquier otro modelo de openrouter.ai/models que soporte structured_outputs.
+OPENROUTER_MODELS = [
+    ("google/gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite — recomendado ($0.25 / $1.50)"),
+    ("google/gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite — muy barato ($0.10 / $0.40)"),
+    ("openai/gpt-6-luna", "GPT-6 Luna — muy barato ($0.10 / $0.50)"),
+    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash — el más barato ($0.08 / $0.16)"),
+    ("qwen/qwen3.8-flash", "Qwen 3.8 Flash ($0.15 / $0.47)"),
+    ("openai/gpt-5-mini", "GPT-5 mini ($0.25 / $2.00)"),
+    ("google/gemini-3.5-flash", "Gemini 3.5 Flash — más preciso ($1.50 / $9.00)"),
+    ("~anthropic/claude-haiku-latest", "Claude Haiku vía OpenRouter ($1 / $5)"),
+]
+WEB_ENGINES = ("exa", "native", "auto")  # exa: $0.007 por búsqueda, funciona con cualquier modelo
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_PAGE_BYTES = 1024 * 1024
 
@@ -37,13 +53,19 @@ ejemplo, una página de administración con logotipos de varios proveedores de i
 y quédate con el que sea consistente con el resto de la huella. Si no alcanza para saber el modelo exacto, \
 identifica lo que sí se puede (fabricante, familia, tipo) y marca la confianza como "baja".
 
-Al terminar, llama UNA vez a la herramienta report_device con el resultado. Textos en español.
+Textos en español.
 - product_url: página oficial del producto si existe; si no, una ficha técnica confiable. Solo URLs que \
 hayas visto en los resultados.
 - image_url: URL directa (jpg/png/webp) de una foto del producto, de preferencia del fabricante o de una \
 tienda reconocida, vista en los resultados. Cadena vacía si no encontraste una.
 - specs: hasta 8 características clave (p. ej. "Wi-Fi 6 AX3000", "4 puertos GE", "GPON").
 - support_status: vigente, descontinuado, fin de soporte (con año si se conoce) o cadena vacía."""
+
+ANTHROPIC_ENDING = "\n\nAl terminar, llama UNA vez a la herramienta report_device con el resultado."
+JSON_ENDING = ("\n\nResponde ÚNICAMENTE con un objeto JSON con estas claves: identified (boolean), manufacturer, "
+               "product_name, model, device_type (uno de: " + ", ".join(DEVICE_TYPES) + "), description, specs "
+               "(lista de textos), release_year, support_status, product_url, image_url, confidence (alta, media o "
+               "baja), notes. Sin texto adicional.")
 
 REPORT_TOOL = {
     "name": "report_device",
@@ -138,16 +160,60 @@ def facts_key(facts: dict) -> str:
 # ---------------------------------------------------------------------------
 # Consulta a Claude
 # ---------------------------------------------------------------------------
+def _user_message(facts: dict) -> str:
+    return "Huella del equipo (JSON):\n" + json.dumps(facts, ensure_ascii=False, indent=1)
+
+
+def normalize_report(data: dict) -> dict:
+    """Valida y normaliza la respuesta (los modelos baratos no siempre respetan el esquema)."""
+    if not isinstance(data, dict):
+        raise EnrichError("La respuesta del modelo no es un objeto JSON")
+    text = lambda k: str(data.get(k) or "").strip()  # noqa: E731
+    specs = data.get("specs") or []
+    report = {
+        "identified": bool(data.get("identified")),
+        "manufacturer": text("manufacturer"),
+        "product_name": text("product_name"),
+        "model": text("model"),
+        "device_type": text("device_type") if text("device_type") in DEVICE_TYPES else "unknown",
+        "description": text("description"),
+        "specs": [str(x).strip() for x in specs if str(x).strip()][:8] if isinstance(specs, list) else [],
+        "release_year": text("release_year"),
+        "support_status": text("support_status"),
+        "product_url": text("product_url"),
+        "image_url": text("image_url"),
+        "confidence": text("confidence").lower() if text("confidence").lower() in ("alta", "media", "baja") else "baja",
+        "notes": text("notes"),
+    }
+    if report["identified"] and not (report["product_name"] or report["model"]):
+        report["identified"] = False
+    return report
+
+
+def parse_json_text(content: str) -> dict:
+    """Acepta JSON puro o envuelto en ```json … ``` / texto alrededor."""
+    content = (content or "").strip()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        start, end = content.find("{"), content.rfind("}")
+        if start == -1 or end <= start:
+            raise EnrichError("El modelo no devolvió JSON") from None
+        try:
+            return json.loads(content[start : end + 1])
+        except json.JSONDecodeError as exc:
+            raise EnrichError("El modelo devolvió JSON inválido") from exc
+
+
+# --- Anthropic ---------------------------------------------------------------
 def make_client(api_key: str = "") -> anthropic.Anthropic:
     # Sin clave explícita, el SDK usa ANTHROPIC_API_KEY o el perfil de `ant auth login`
     return anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
 
 
 def identify(facts: dict, client: anthropic.Anthropic, model: str = DEFAULT_MODEL, max_rounds: int = 5) -> dict:
-    messages = [{
-        "role": "user",
-        "content": "Huella del equipo (JSON):\n" + json.dumps(facts, ensure_ascii=False, indent=1),
-    }]
+    """Claude con búsqueda web; el resultado llega por la herramienta estricta report_device."""
+    messages = [{"role": "user", "content": _user_message(facts)}]
     for _ in range(max_rounds):
         try:
             response = client.beta.messages.create(
@@ -156,7 +222,7 @@ def identify(facts: dict, client: anthropic.Anthropic, model: str = DEFAULT_MODE
                 betas=["server-side-fallback-2026-07-01"],
                 fallbacks="default",
                 output_config={"effort": "medium"},
-                system=SYSTEM_PROMPT,
+                system=SYSTEM_PROMPT + ANTHROPIC_ENDING,
                 tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}, REPORT_TOOL],
                 tool_choice={"type": "auto"},
                 messages=messages,
@@ -174,12 +240,88 @@ def identify(facts: dict, client: anthropic.Anthropic, model: str = DEFAULT_MODE
             raise EnrichError("La consulta fue rechazada por el modelo")
         report = next((b for b in response.content if b.type == "tool_use" and b.name == "report_device"), None)
         if report is not None:
-            return dict(report.input)
+            return normalize_report(dict(report.input))
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason == "pause_turn":
             continue  # la búsqueda web sigue en curso: reenviar para continuar
         messages.append({"role": "user", "content": "Reporta el resultado con la herramienta report_device."})
     raise EnrichError("El modelo no reportó un resultado")
+
+
+# --- OpenRouter --------------------------------------------------------------
+def identify_openrouter(facts: dict, api_key: str, model: str = OPENROUTER_DEFAULT_MODEL, engine: str = "exa",
+                        http: httpx.Client | None = None) -> dict:
+    """Cualquier modelo de OpenRouter con el plugin de búsqueda web y salida JSON con esquema.
+
+    - provider.data_collection="deny": solo proveedores que no guardan ni entrenan con los datos.
+    - Si el modelo/proveedor no acepta response_format, se reintenta pidiendo el JSON en el prompt.
+    """
+    if not api_key:
+        raise EnrichError("Falta la clave de OpenRouter (Configuración › Búsqueda en internet)")
+    plugin = {"id": "web", "max_results": 5}
+    if engine in ("exa", "native"):
+        plugin["engine"] = engine
+    base = {
+        "model": model,
+        "messages": [{"role": "system", "content": SYSTEM_PROMPT + JSON_ENDING},
+                     {"role": "user", "content": _user_message(facts)}],
+        "plugins": [plugin],
+        "max_tokens": 4000,
+    }
+    structured = {
+        **base,
+        "response_format": {"type": "json_schema", "json_schema": {
+            "name": "report_device", "strict": True, "schema": REPORT_TOOL["input_schema"]}},
+        "provider": {"data_collection": "deny", "require_parameters": True},
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "HTTP-Referer": "https://github.com/ellaguno/iureTI",
+               "X-Title": "iureTI Discovery"}
+    client = http or httpx.Client(timeout=120.0)
+    try:
+        data = _openrouter_post(client, headers, structured)
+        if data is None:  # ningún proveedor soporta el esquema: JSON por prompt
+            data = _openrouter_post(client, headers, {**base, "provider": {"data_collection": "deny"}}, final=True)
+    finally:
+        if http is None:
+            client.close()
+    choice = (data.get("choices") or [{}])[0]
+    message = choice.get("message") or {}
+    report = normalize_report(parse_json_text(message.get("content") or ""))
+    # Si el modelo no dio ficha, la primera fuente citada sirve para buscar la foto (og:image)
+    cited = [a.get("url_citation", {}).get("url", "") for a in message.get("annotations") or []]
+    report["sources"] = [u for u in cited if u][:5]
+    if not report["product_url"] and report["sources"]:
+        report["product_url_hint"] = report["sources"][0]
+    usage = data.get("usage") or {}
+    if usage.get("cost") is not None:
+        report["cost_usd"] = usage["cost"]
+    report["model_used"] = data.get("model", model)
+    return report
+
+
+def _openrouter_post(client: httpx.Client, headers: dict, body: dict, final: bool = False) -> dict | None:
+    try:
+        resp = client.post(OPENROUTER_URL, json=body, headers=headers)
+    except httpx.HTTPError as exc:
+        raise EnrichError(f"Sin conexión con OpenRouter: {exc}") from exc
+    if resp.status_code == 200:
+        data = resp.json()
+        if data.get("error"):
+            raise EnrichError(f"OpenRouter: {data['error'].get('message', data['error'])}")
+        return data
+    try:
+        message = resp.json().get("error", {}).get("message", resp.text[:200])
+    except ValueError:
+        message = resp.text[:200]
+    if resp.status_code == 401:
+        raise EnrichError("Clave de OpenRouter inválida (Configuración › Búsqueda en internet)")
+    if resp.status_code == 402:
+        raise EnrichError("Sin créditos en OpenRouter (openrouter.ai/settings/credits)")
+    if resp.status_code == 429:
+        raise EnrichError("Límite de uso de OpenRouter alcanzado; intenta más tarde")
+    if resp.status_code in (400, 404) and not final:
+        return None  # p.ej. «No endpoints found that can handle the requested parameters»
+    raise EnrichError(f"OpenRouter respondió {resp.status_code}: {message}")
 
 
 # ---------------------------------------------------------------------------
@@ -258,8 +400,9 @@ def resolve_image(result: dict) -> tuple[str, str]:
     headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) iureti-discovery"}
     with httpx.Client(timeout=10.0, follow_redirects=True, headers=headers) as client:
         candidates = [result.get("image_url", "")]
-        if result.get("product_url"):
-            candidates.append(page_image(client, result["product_url"]))
+        for page in (result.get("product_url"), result.get("product_url_hint")):
+            if page:
+                candidates.append(page_image(client, page))
         for url in filter(None, candidates):
             if filename := download_image(client, url):
                 return url, filename

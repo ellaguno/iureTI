@@ -156,7 +156,7 @@ def test_enrich_asset_applies_and_caches(tmp_path, monkeypatch):
     store.save_assets([a, b])
     with pytest.raises(enrich.EnrichError):
         service.enrich_asset(store, a.id)  # desactivado por omisión
-    store.update_settings({"enrich_enabled": True})
+    store.update_settings({"enrich_enabled": True, "enrich_provider": "anthropic"})
     client, messages = fake_client()
     r = service.enrich_asset(store, a.id, client=client)
     assert not r["cached"] and r["asset"]["model"] == "HG8145X6"
@@ -164,3 +164,79 @@ def test_enrich_asset_applies_and_caches(tmp_path, monkeypatch):
     r2 = service.enrich_asset(store, b.id, client=client)
     assert r2["cached"] and messages.calls == 2
     assert store.get_asset(b.id).attributes["enrichment"]["product_name"] == "Huawei EchoLife HG8145X6"
+
+
+# --- OpenRouter ----------------------------------------------------------------
+import httpx  # noqa: E402
+import json as _json  # noqa: E402
+
+
+def _or_client(handler):
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def _or_ok(content, cost=0.0123):
+    return httpx.Response(200, json={
+        "model": "google/gemini-3.1-flash-lite",
+        "choices": [{"message": {"content": content, "annotations": [
+            {"type": "url_citation", "url_citation": {"url": "https://e.huawei.com/hg8145x6", "title": "HG8145X6"}}]}}],
+        "usage": {"cost": cost}})
+
+
+def test_openrouter_structured_request_and_cost():
+    seen = {}
+
+    def handler(request):
+        body = _json.loads(request.content)
+        seen.update(body=body, auth=request.headers["authorization"])
+        return _or_ok(_json.dumps(REPORT))
+
+    r = enrich.identify_openrouter({"modelo": "Huawei EchoLife Series"}, "sk-or-x", http=_or_client(handler))
+    body = seen["body"]
+    assert seen["auth"] == "Bearer sk-or-x" and body["model"] == "google/gemini-3.1-flash-lite"
+    assert body["plugins"] == [{"id": "web", "max_results": 5, "engine": "exa"}]
+    assert body["response_format"]["type"] == "json_schema"
+    assert body["provider"] == {"data_collection": "deny", "require_parameters": True}
+    assert r["model"] == "HG8145X6" and r["cost_usd"] == 0.0123
+    assert r["sources"] == ["https://e.huawei.com/hg8145x6"]
+
+
+def test_openrouter_falls_back_to_prompt_json_when_schema_unsupported():
+    calls = []
+
+    def handler(request):
+        body = _json.loads(request.content)
+        calls.append(body)
+        if "response_format" in body:
+            return httpx.Response(404, json={"error": {"message": "No endpoints found that can handle the requested parameters."}})
+        return _or_ok("```json\n" + _json.dumps({**REPORT, "device_type": "módem", "confidence": "ALTA"}) + "\n```")
+
+    r = enrich.identify_openrouter({"modelo": "x"}, "k", model="deepseek/deepseek-v4-flash", http=_or_client(handler))
+    assert len(calls) == 2 and "response_format" not in calls[1]
+    assert calls[1]["provider"] == {"data_collection": "deny"}
+    assert r["device_type"] == "unknown" and r["confidence"] == "alta"  # normalizado
+
+
+@pytest.mark.parametrize("status,needle", [(401, "inválida"), (402, "créditos"), (429, "Límite")])
+def test_openrouter_errors(status, needle):
+    client = _or_client(lambda request: httpx.Response(status, json={"error": {"message": "x"}}))
+    with pytest.raises(enrich.EnrichError, match=needle):
+        enrich.identify_openrouter({"modelo": "x"}, "k", http=client)
+
+
+def test_openrouter_requires_key():
+    with pytest.raises(enrich.EnrichError, match="clave"):
+        enrich.identify_openrouter({"modelo": "x"}, "")
+
+
+def test_enrich_asset_via_openrouter(tmp_path, monkeypatch):
+    monkeypatch.setattr(enrich, "resolve_image", lambda result: ("", ""))
+    store = Store(tmp_path / "t.db")
+    a = _modem_asset()
+    store.save_assets([a])
+    store.update_settings({"enrich_enabled": True, "openrouter_api_key": "k", "openrouter_model": "openai/gpt-6-luna"})
+    client = _or_client(lambda request: _or_ok(_json.dumps(REPORT)))
+    r = service.enrich_asset(store, a.id, client=client)
+    e = r["asset"]["attributes"]["enrichment"]
+    assert e["provider"] == "openrouter" and e["model_requested"] == "openai/gpt-6-luna" and e["cost_usd"] == 0.0123
+    assert r["asset"]["model"] == "HG8145X6"

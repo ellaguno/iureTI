@@ -29,9 +29,10 @@ Estimado: 4–6 semanas, 1 desarrollador.
 - [x] NetBIOS (nombre y grupo de Windows/Samba), TTL → familia de SO, puerto 62078 (iPhone/iPad)
 - [x] La sonda se describe a sí misma (DMI + os-release)
 - [x] Tipo `mobile` (celular/tablet) separado de `phone` (teléfono IP)
-- [x] Identificación por internet con Claude + búsqueda web: nombre comercial, descripción, ficha y foto; caché por producto
-- [ ] Probar la identificación por internet con clave real (solo probado con cliente simulado)
-- [ ] Clave de Anthropic en keyring en vez de la BD local
+- [x] Identificación por internet con IA + búsqueda web: nombre comercial, descripción, ficha y foto; caché por producto
+- [x] Proveedores: OpenRouter (Gemini, GPT, DeepSeek, Qwen…; por omisión) y Anthropic; costo por consulta visible
+- [ ] Probar la identificación por internet con claves reales (solo probado con clientes simulados)
+- [ ] Claves de API en keyring en vez de la BD local
 
 ## v2 — +4–6 semanas
 - **GLPI-Agent (adelantado de v3)**: inventario de laptops y de software instalado; el

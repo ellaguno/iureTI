@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from . import enrich
 from .classify import classify
 from .models import utcnow
@@ -90,10 +92,19 @@ def enrich_asset(store: Store, asset_id: str, force: bool = False, client=None) 
     result = None if force else store.get_enrichment(key)
     cached = result is not None
     if result is None:
-        client = client or enrich.make_client(settings.get("anthropic_api_key", ""))
-        result = enrich.identify(facts, client, settings.get("enrich_model") or enrich.DEFAULT_MODEL)
+        provider = settings.get("enrich_provider") or "openrouter"
+        if provider == "anthropic":
+            model = settings.get("anthropic_model") or enrich.DEFAULT_MODEL
+            client = client or enrich.make_client(settings.get("anthropic_api_key", ""))
+            result = enrich.identify(facts, client, model)
+        else:
+            model = settings.get("openrouter_model") or enrich.OPENROUTER_DEFAULT_MODEL
+            api_key = settings.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY", "")
+            result = enrich.identify_openrouter(facts, api_key, model, settings.get("openrouter_web_engine", "exa"),
+                                                http=client)
         result["image_url"], result["image_file"] = enrich.resolve_image(result)
         result["key"], result["fetched_at"], result["facts_sent"] = key, utcnow(), facts
+        result["provider"], result["model_requested"] = provider, model
         store.save_enrichment(key, result, result["fetched_at"])
     enrich.apply(asset, result)
     if not asset.type_locked:

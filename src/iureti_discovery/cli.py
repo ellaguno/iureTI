@@ -99,6 +99,11 @@ def cmd_enrich(args) -> None:
     store = Store(args.db)
     if args.enable:
         store.update_settings({"enrich_enabled": True})
+    if args.provider:
+        store.update_settings({"enrich_provider": args.provider})
+    if args.model:
+        provider = store.get_settings()["enrich_provider"]
+        store.update_settings({f"{provider}_model": args.model})
     ids = service.enrich_candidates(store, only_missing=not args.all)
     if not ids:
         print("No hay activos pendientes con datos de producto para buscar.")
@@ -110,12 +115,12 @@ def cmd_enrich(args) -> None:
             r = service.enrich_asset(store, asset_id, force=args.all)
         except enrich.EnrichError as exc:
             print(f"{label}  ✗ {exc}")
-            if "Clave" in str(exc) or "desactivada" in str(exc):
+            if any(w in str(exc) for w in ("Clave", "clave", "desactivada", "créditos")):
                 sys.exit(1)
             continue
         e = r["asset"]["attributes"]["enrichment"]
         found = e.get("product_name") if e.get("identified") else "no identificado"
-        extra = " (caché)" if r["cached"] else ""
+        extra = " (caché)" if r["cached"] else (f" ${e['cost_usd']:.4f}" if e.get("cost_usd") is not None else "")
         print(f"{label}  → {found} [{e.get('confidence')}]{' 📷' if e.get('image_file') else ''}{extra}")
 
 
@@ -157,6 +162,8 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("enrich", help="Identifica productos en internet (Claude + búsqueda web)")
     p.add_argument("--all", action="store_true", help="Vuelve a buscar también los ya identificados")
     p.add_argument("--enable", action="store_true", help="Activa la búsqueda en internet en la configuración")
+    p.add_argument("--provider", choices=["openrouter", "anthropic"], help="Proveedor (se guarda en la configuración)")
+    p.add_argument("--model", help="Modelo del proveedor (se guarda), p.ej. google/gemini-3.1-flash-lite")
     p.set_defaults(func=cmd_enrich)
 
     p = sub.add_parser("oui-update", help="Descarga la base de fabricantes (IEEE)")

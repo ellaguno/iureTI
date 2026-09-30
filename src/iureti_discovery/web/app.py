@@ -32,7 +32,7 @@ class DeleteRequest(BaseModel):
     ids: list[str]
 
 
-TOP_SECRETS = ("api_token", "anthropic_api_key")
+TOP_SECRETS = ("api_token", "anthropic_api_key", "openrouter_api_key")
 
 
 def _mask_settings(settings: dict) -> dict:
@@ -86,6 +86,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
             "sync_configured": bool(store.get_settings().get("api_url")),
             "enrich_enabled": bool(store.get_settings().get("enrich_enabled")),
             "enrich": state["enrich"],
+            "openrouter_models": enrich.OPENROUTER_MODELS,
         }
 
     @app.get("/api/settings")
@@ -94,6 +95,10 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
     @app.put("/api/settings")
     def put_settings(values: dict):
+        if values.get("enrich_provider", "openrouter") not in ("openrouter", "anthropic"):
+            raise HTTPException(400, "Proveedor inválido (openrouter o anthropic)")
+        if values.get("openrouter_web_engine", "exa") not in enrich.WEB_ENGINES:
+            raise HTTPException(400, "Motor de búsqueda inválido (exa, native o auto)")
         for cred in values.get("snmp_credentials", []):
             if not cred.get("name"):
                 raise HTTPException(400, "Cada credencial SNMP necesita un nombre")
@@ -169,7 +174,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
                         job["cached"] += r["cached"]
                     except enrich.EnrichError as exc:
                         job["errors"].append(str(exc))
-                        if "Clave" in str(exc) or "desactivada" in str(exc):
+                        if any(w in str(exc) for w in ("Clave", "clave", "desactivada", "créditos")):
                             break  # no tiene caso seguir
                     job["done"] += 1
             finally:

@@ -47,10 +47,14 @@ DEFAULT_SETTINGS = {
     "use_ssdp": True,
     "use_http": True,
     "use_netbios": True,
-    # Búsqueda en internet (Claude + búsqueda web). Desactivada hasta que se configure.
+    # Búsqueda en internet. Desactivada hasta que se configure.
     "enrich_enabled": False,
-    "anthropic_api_key": "",
-    "enrich_model": "claude-opus-5-5",
+    "enrich_provider": "openrouter",  # openrouter | anthropic
+    "openrouter_api_key": "",  # vacío = variable OPENROUTER_API_KEY
+    "openrouter_model": "google/gemini-3.1-flash-lite",
+    "openrouter_web_engine": "exa",  # exa | native | auto
+    "anthropic_api_key": "",  # vacío = ANTHROPIC_API_KEY o perfil de `ant auth login`
+    "anthropic_model": "claude-opus-5-5",
 }
 
 

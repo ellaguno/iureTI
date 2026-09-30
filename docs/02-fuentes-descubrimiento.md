@@ -92,8 +92,20 @@ Azure / AWS / GCP.
 
 ## 6. Identificación por internet (v0.2, opcional)
 Con las pistas locales (marca, modelo genérico, descripción UPnP/SNMP, título de la página, candidatos de modelo)
-la sonda pide a **Claude con búsqueda web** que identifique el producto exacto: nombre comercial, descripción,
-características, año, estado de soporte, ficha y **foto**. Ver [05](05-seguridad.md) para qué datos salen.
+la sonda pide a un modelo de IA con búsqueda web que identifique el producto exacto: nombre comercial,
+descripción, características, año, estado de soporte, ficha y **foto**. Ver [05](05-seguridad.md) para qué datos salen.
+
+Dos proveedores:
+
+| Proveedor | Modelos | Búsqueda web | Costo típico por producto |
+|---|---|---|---|
+| **OpenRouter** (por omisión) | Cualquiera con *structured outputs*: Gemini 3.1 Flash Lite (recomendado), Gemini 2.5 Flash Lite, GPT-6 Luna, DeepSeek V4 Flash, Qwen 3.8 Flash, GPT-5 mini… | Plugin `web`: Exa ($0.007/búsqueda, cualquier modelo) o nativa | ~US$0.01–0.02 |
+| **Anthropic** | Claude Opus 5.5 / Sonnet 5.5 / Haiku 4.5 | `web_search` de Claude | más caro; más preciso con Opus |
+
+- OpenRouter: salida con esquema JSON (`response_format`); si el modelo/proveedor no lo soporta, se reintenta
+  pidiendo el JSON en el prompt y la respuesta se valida y normaliza igual. El costo real (`usage.cost`) se
+  guarda y se muestra en la ficha.
+- Precios del catálogo de OpenRouter al 2026-09-30; cambian con frecuencia.
 
 - La foto se toma de la URL que dio la búsqueda o de la `og:image` de la ficha del producto; la sonda la
   descarga, valida que sea imagen (≤ 5 MB) y la guarda en caché local.

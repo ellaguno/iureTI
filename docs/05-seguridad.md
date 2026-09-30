@@ -34,7 +34,9 @@
 
 ## Identificación por internet (opcional, desactivada por omisión)
 
-Se activa en Configuración › Búsqueda en internet y requiere una clave de API de Anthropic.
+Se activa en Configuración › Búsqueda en internet y requiere una clave de **OpenRouter** (por omisión) o de
+**Anthropic**. Con OpenRouter los datos pasan por OpenRouter y por el proveedor del modelo elegido; la sonda
+pide `provider.data_collection: "deny"` para usar solo proveedores que no guardan ni entrenan con los datos.
 
 **Qué se envía** (función `enrich.product_facts`, con prueba automática que lo verifica): tipo probable,
 fabricante, modelo, SO/firmware, sysObjectID y sysDescr de SNMP, fabricante/modelo/tipo UPnP, título y
@@ -52,9 +54,10 @@ incluye el hostname: «Linux srv-contabilidad 5.15…» → «Linux [equipo] 5.1
 - La sonda solo descarga imágenes/páginas de URLs **públicas** (resuelve el host y rechaza IPs privadas,
   loopback y link-local) para que una URL devuelta por la búsqueda no la haga consultar la red interna.
 - Imágenes: solo `image/jpeg|png|webp|gif`, máximo 5 MB, guardadas en `~/.cache/iureti-discovery/images`.
-- La clave de API se guarda en la BD local (permisos 600) y se enmascara en la interfaz.
-- Modelo por omisión `claude-opus-5-5` con `fallbacks: "default"`: si el modelo declina una consulta, la
-  API la reintenta en el modelo de respaldo recomendado.
+- Las claves de API se guardan en la BD local (permisos 600) y se enmascaran en la interfaz; también se
+  pueden dar por variable de entorno (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`).
+- Con Anthropic, modelo por omisión `claude-opus-5-5` con `fallbacks: "default"`: si el modelo declina una
+  consulta, la API la reintenta en el modelo de respaldo recomendado.
 
 ## Consideraciones legales / privacidad
 

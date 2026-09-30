@@ -127,7 +127,7 @@ td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fo
       <input type="search" id="q" placeholder="Buscar IP, nombre, MAC, fabricante…">
       <select id="f-type"><option value="">Todos los tipos</option></select>
       <span class="spacer"></span>
-      <button class="btn" id="enrich-all" title="Identifica productos en internet (Claude + búsqueda web)">Buscar en internet</button>
+      <button class="btn" id="enrich-all" title="Identifica productos en internet (IA + búsqueda web)">Buscar en internet</button>
       <button class="btn danger" id="delete-sel" disabled>Olvidar seleccionados</button>
       <button class="btn" id="export-csv" title="CSV con los encabezados de Inventario › Importar">CSV para importar</button>
       <button class="btn" id="export-json">JSON (contrato API)</button>
@@ -186,13 +186,30 @@ td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fo
   </div>
   <div class="card">
     <h2>Búsqueda en internet</h2>
-    <p class="small muted" style="margin-top:0">Identifica el producto (nombre comercial, descripción, ficha y foto) con Claude y búsqueda web.
+    <p class="small muted" style="margin-top:0">Identifica el producto (nombre comercial, descripción, ficha y foto) con un modelo de IA y búsqueda web.
       Solo se envían datos del <b>producto</b>: marca, modelo, lo que el equipo anuncia por SNMP/UPnP/mDNS/web y sus puertos.
-      <b>Nunca</b> IPs, MACs, nombres de equipo, números de serie ni ubicaciones. Cada modelo se consulta una sola vez (caché).</p>
+      <b>Nunca</b> IPs, MACs, nombres de equipo, números de serie ni ubicaciones. Cada modelo de producto se consulta una sola vez (caché).</p>
     <div class="row">
       <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-enrich_enabled" style="width:auto"> Activar</label>
+      <div><label>Proveedor</label><select id="s-enrich_provider">
+        <option value="openrouter">OpenRouter (Gemini, GPT, DeepSeek, Qwen… — económico)</option>
+        <option value="anthropic">Anthropic (Claude directo)</option></select></div>
+    </div>
+    <div class="row prov prov-openrouter" style="margin-top:10px">
+      <div><label>Clave de OpenRouter (vacío = variable OPENROUTER_API_KEY)</label><input id="s-openrouter_api_key" type="password" autocomplete="off"></div>
+      <div><label>Modelo (cualquiera de openrouter.ai/models con structured outputs)</label><input id="s-openrouter_model" list="or-models"><datalist id="or-models"></datalist></div>
+      <div style="flex:0 1 200px"><label>Búsqueda web</label><select id="s-openrouter_web_engine">
+        <option value="exa">Exa ($0.007 por búsqueda)</option>
+        <option value="native">Nativa del modelo</option>
+        <option value="auto">Automática</option></select></div>
+    </div>
+    <p class="small muted prov prov-openrouter">Costo típico por producto con Gemini Flash Lite + Exa: ~1–2 centavos de dólar. Solo se usan proveedores que no guardan los datos.</p>
+    <div class="row prov prov-anthropic" style="margin-top:10px">
       <div><label>Clave de API de Anthropic (vacío = variable ANTHROPIC_API_KEY)</label><input id="s-anthropic_api_key" type="password" autocomplete="off"></div>
-      <div><label>Modelo</label><input id="s-enrich_model"></div>
+      <div><label>Modelo</label><input id="s-anthropic_model" list="an-models"><datalist id="an-models">
+        <option value="claude-opus-5-5">Claude Opus 5.5 — el más preciso</option>
+        <option value="claude-sonnet-5-5">Claude Sonnet 5.5 — más económico</option>
+        <option value="claude-haiku-4-5">Claude Haiku 4.5 — el más económico</option></datalist></div>
     </div>
   </div>
   <div class="card">
@@ -247,8 +264,9 @@ async function loadStatus() {
   $("#oui-status").textContent = st.oui_available ? "Base OUI disponible." : "Base OUI no descargada: el fabricante por MAC no se mostrará.";
   renderStats(st.counts);
   enrichEnabled = st.enrich_enabled;
+  if (!$("#or-models").children.length) $("#or-models").innerHTML = st.openrouter_models.map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join("");
   $("#enrich-all").disabled = !enrichEnabled || st.enrich.running;
-  $("#enrich-all").title = enrichEnabled ? "Identifica productos en internet (Claude + búsqueda web)" : "Actívala en Configuración › Búsqueda en internet";
+  $("#enrich-all").title = enrichEnabled ? "Identifica productos en internet (IA + búsqueda web)" : "Actívala en Configuración › Búsqueda en internet";
   const ej = st.enrich;
   $("#enrich-progress").textContent = ej.running ? `Buscando en internet… ${ej.done}/${ej.total}`
     : ej.total ? `Búsqueda en internet: ${ej.done}/${ej.total} activos (${ej.cached} desde caché)${ej.errors.length ? ". Errores: " + [...new Set(ej.errors)].join("; ") : ""}.` : "";
@@ -372,7 +390,7 @@ function productBlock(a) {
       <div>${esc(e.description)}</div>
       ${e.specs?.length ? `<ul>${e.specs.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       <div class="small muted">${[e.release_year && "Lanzamiento: " + esc(e.release_year), e.support_status && "Soporte: " + esc(e.support_status)].filter(Boolean).join(" · ")}</div>
-      <div class="small">${e.product_url ? `<a href="${esc(e.product_url)}" target="_blank" rel="noopener noreferrer">Ficha del producto</a> · ` : ""}<span class="muted">Consultado ${fmtDate(e.fetched_at)}</span> ${btn}</div>
+      <div class="small">${e.product_url ? `<a href="${esc(e.product_url)}" target="_blank" rel="noopener noreferrer">Ficha del producto</a> · ` : ""}<span class="muted">Consultado ${fmtDate(e.fetched_at)}${e.model_used || e.model_requested ? " con " + esc(e.model_used || e.model_requested) : ""}${e.cost_usd != null ? ` · US$ ${Number(e.cost_usd).toFixed(4)}` : ""}</span> ${btn}</div>
       ${e.notes ? `<div class="small muted">${esc(e.notes)}</div>` : ""}
     </div></div>`;
 }
@@ -416,7 +434,8 @@ $("#sync").onclick = async () => {
 };
 
 // ---------- configuración ----------
-const SIMPLE = ["probe_id", "site", "api_url", "api_token", "concurrency", "tcp_timeout", "anthropic_api_key", "enrich_model"];
+const SIMPLE = ["probe_id", "site", "api_url", "api_token", "concurrency", "tcp_timeout", "enrich_provider",
+  "openrouter_api_key", "openrouter_model", "openrouter_web_engine", "anthropic_api_key", "anthropic_model"];
 const BOOLS = ["use_ping", "resolve_dns", "use_mdns", "use_ssdp", "use_http", "use_netbios", "enrich_enabled"];
 async function loadSettings() {
   settings = await api("/api/settings");
@@ -424,7 +443,13 @@ async function loadSettings() {
   BOOLS.forEach((k) => ($("#s-" + k).checked = !!settings[k]));
   if (!$("#targets").value && settings.targets.length) $("#targets").value = settings.targets.join("\n");
   renderCreds();
+  showProvider();
 }
+function showProvider() {
+  const prov = $("#s-enrich_provider").value;
+  document.querySelectorAll(".prov").forEach((el) => (el.style.display = el.classList.contains("prov-" + prov) ? "" : "none"));
+}
+$("#s-enrich_provider").onchange = showProvider;
 function credField(i, key, label, type = "text", opts = null) {
   const v = settings.snmp_credentials[i][key] ?? "";
   if (opts) return `<div><label>${label}</label><select data-i="${i}" data-k="${key}">${opts.map((o) => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select></div>`;
