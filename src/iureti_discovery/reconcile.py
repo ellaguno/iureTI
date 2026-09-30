@@ -10,6 +10,10 @@ from . import localhost, mdns
 from .models import Asset, Observation
 from .netutil import is_locally_administered, normalize_mac, os_family_from_ttl
 
+# MACs que no identifican a nadie: interfaces sin dirección (GLPI-Agent reporta 00:00:00:00:00:00)
+# y broadcast. Misma regla que iurefficient (plugins/iur_inventory/identity.py).
+JUNK_MACS = {"00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"}
+
 JUNK_SERIALS = {
     "", "0", "00000000", "none", "n/a", "na", "unknown", "default string", "not specified",
     "to be filled by o.e.m.", "system serial number", "0123456789", "123456789", "serial",
@@ -37,7 +41,7 @@ def identity_keys(serial: str = "", macs: list[str] = (), hostname: str = "") ->
         keys.append(f"serial:{s}")
     for mac in macs:
         mac = normalize_mac(mac)
-        if mac and not is_locally_administered(mac):
+        if mac and mac not in JUNK_MACS and not is_locally_administered(mac):
             keys.append(f"mac:{mac}")
     if h := normalize_hostname(hostname):
         keys.append(f"host:{h}")

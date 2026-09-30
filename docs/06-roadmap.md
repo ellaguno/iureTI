@@ -43,7 +43,7 @@ Estimado: 4–6 semanas, 1 desarrollador.
 - [x] Imagen Docker multi‑arquitectura; `install.sh` con verificación SHA‑256
 - [x] GitHub Actions: CI y release por tag
 - [x] Primer release publicado (`v0.3.0`): `.deb` amd64 y arm64 (instalación probada en CI en ambas arquitecturas), imagen `ghcr.io/ellaguno/iureti` pública, `install.sh` verificado contra el release real
-- [ ] Del lado de iurefficient: pantalla Sondas + endpoint de heartbeat
+- [ ] Del lado de iurefficient: pantalla Sondas + endpoint de heartbeat — entrega en [08](08-integracion-iurefficient.md)
 - [ ] Appliance Raspberry Pi / OVA; repositorio apt firmado
 
 ## v2 — +4–6 semanas

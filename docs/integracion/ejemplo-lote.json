@@ -1,0 +1,207 @@
+{
+ "batch_id": "0d6c3b1e-8f0a-4a57-9b7e-2a0c9c1e4f11",
+ "probe": {
+  "id": "sonda-matriz-01",
+  "version": "0.3.1",
+  "site": "Matriz CDMX"
+ },
+ "scan": {
+  "started_at": "2026-09-30T16:34:40Z",
+  "finished_at": "2026-09-30T16:34:59Z",
+  "targets": [
+   "192.168.1.0/24",
+   "10.0.0.0/24"
+  ],
+  "collectors": [
+   "http",
+   "mdns",
+   "oui",
+   "ports",
+   "snmp",
+   "sweep",
+   "upnp"
+  ]
+ },
+ "assets": [
+  {
+   "probe_asset_id": "9ce7b4b35b3f4da9b3d3ad50a5f2ad92",
+   "fingerprint": "serial:485754436371E3B5",
+   "device_type": "router",
+   "confidence": 0.95,
+   "hostname": "",
+   "ips": [
+    "192.168.1.1"
+   ],
+   "macs": [
+    "b0:a4:f0:00:00:01"
+   ],
+   "vendor": "HUAWEI TECHNOLOGIES CO.,LTD",
+   "model": "HG8145X6",
+   "serial": "485754436371E3B5",
+   "os": "",
+   "open_ports": [
+    23,
+    53,
+    80
+   ],
+   "location": "",
+   "sources": [
+    "http",
+    "oui",
+    "ports",
+    "sweep",
+    "upnp"
+   ],
+   "first_seen": "2026-09-30T16:34:59Z",
+   "last_seen": "2026-09-30T16:34:59Z",
+   "attributes": {
+    "classification_reasons": [
+     "Telnet",
+     "UPnP internetgatewaydevice",
+     "puerta de enlace de la red",
+     "DNS (53) sin servicios de servidor"
+    ],
+    "os_family": "unix",
+    "upnp_serial_decoded": "HWTC6371E3B5",
+    "product": {
+     "product_name": "Huawei EchoLife HG8145X6",
+     "manufacturer": "Huawei",
+     "model": "HG8145X6",
+     "description": "ONT GPON con Wi-Fi 6 (AX3000) para servicio de fibra óptica del proveedor.",
+     "specs": [
+      "GPON",
+      "Wi-Fi 6 AX3000",
+      "4 puertos GE",
+      "1 puerto POTS",
+      "USB"
+     ],
+     "release_year": "2021",
+     "support_status": "vigente",
+     "product_url": "https://e.huawei.com/example/hg8145x6",
+     "image_url": "https://e.huawei.com/example/hg8145x6.png",
+     "confidence": "alta",
+     "fetched_at": "2026-09-30T16:34:59Z"
+    }
+   }
+  },
+  {
+   "probe_asset_id": "5c2017883c1d4dee8655acf182769c78",
+   "fingerprint": "host:android_9xp64zt9",
+   "device_type": "mobile",
+   "confidence": 0.93,
+   "hostname": "Android_9XP64ZT9",
+   "ips": [
+    "192.168.1.4"
+   ],
+   "macs": [
+    "96:9e:f1:00:00:02"
+   ],
+   "vendor": "Google",
+   "model": "Pixel 9 Pro",
+   "serial": "",
+   "os": "",
+   "open_ports": [],
+   "location": "",
+   "sources": [
+    "mdns",
+    "sweep"
+   ],
+   "first_seen": "2026-09-30T16:34:59Z",
+   "last_seen": "2026-09-30T16:34:59Z",
+   "attributes": {
+    "classification_reasons": [
+     "fabricante Google",
+     "nombre 'android_9xp64zt9'",
+     "anuncia Google Nearby / Quick Share (Android) (mDNS)",
+     "se anuncia como «phone» (mDNS)"
+    ],
+    "announced_name": "Pixel 9 Pro",
+    "os_family": "unix"
+   }
+  },
+  {
+   "probe_asset_id": "5e3afcef805e481ba9c7b91b48f6bcae",
+   "fingerprint": "serial:FCW2233L0AB",
+   "device_type": "switch",
+   "confidence": 0.8,
+   "hostname": "sw-core-01.corp.local",
+   "ips": [
+    "10.0.0.2"
+   ],
+   "macs": [
+    "00:1a:2b:00:00:03"
+   ],
+   "vendor": "Cisco Systems, Inc",
+   "model": "C9300-48P",
+   "serial": "FCW2233L0AB",
+   "os": "Cisco IOS XE Software, Version 17.09.04a, Catalyst L3 Switch Software (CAT9K_IOSXE)",
+   "open_ports": [
+    22,
+    443
+   ],
+   "location": "Site: Matriz, Rack 2",
+   "sources": [
+    "oui",
+    "ports",
+    "snmp",
+    "sweep"
+   ],
+   "first_seen": "2026-09-30T16:34:59Z",
+   "last_seen": "2026-09-30T16:34:59Z",
+   "attributes": {
+    "snmp_sys_object_id": "1.3.6.1.4.1.9.1.2494",
+    "snmp_sys_descr": "Cisco IOS XE Software, Version 17.09.04a, Catalyst L3 Switch Software (CAT9K_IOSXE)",
+    "classification_reasons": [
+     "descripción/modelo sugiere switch",
+     "nombre 'sw-core-01'",
+     "SSH + web"
+    ],
+    "os_family": "network"
+   }
+  },
+  {
+   "probe_asset_id": "f914f1d2d59345ec9e6284f1a6152843",
+   "fingerprint": "mac:30:05:5c:00:00:04",
+   "device_type": "printer",
+   "confidence": 1.0,
+   "hostname": "prn-recepcion.corp.local",
+   "ips": [
+    "10.0.0.50"
+   ],
+   "macs": [
+    "30:05:5c:00:00:04"
+   ],
+   "vendor": "Brother Industries, LTD.",
+   "model": "Brother MFC-L2710DW series",
+   "serial": "",
+   "os": "",
+   "open_ports": [
+    80,
+    443,
+    515,
+    631,
+    9100
+   ],
+   "location": "",
+   "sources": [
+    "mdns",
+    "oui",
+    "ports",
+    "sweep"
+   ],
+   "first_seen": "2026-09-30T16:34:59Z",
+   "last_seen": "2026-09-30T16:34:59Z",
+   "attributes": {
+    "classification_reasons": [
+     "descripción/modelo sugiere printer",
+     "fabricante Brother Industries, LTD.",
+     "nombre 'prn-recepcion'",
+     "puertos de impresión (9100/515/631)",
+     "anuncia Impresión IPP (mDNS)",
+     "anuncia Impresión RAW (mDNS)"
+    ],
+    "os_family": "unix"
+   }
+  }
+ ]
+}

@@ -124,3 +124,8 @@ def test_synthetic_hostname_is_not_identity():
     rec = Reconciler([])
     a, _ = rec.merge(Observation(ip="10.0.0.1", hostname="_gateway"))
     assert a.fingerprint == "ip:10.0.0.1"
+
+
+def test_junk_macs_never_identify():
+    from iureti_discovery.reconcile import identity_keys
+    assert identity_keys("", ["00:00:00:00:00:00", "FF-FF-FF-FF-FF-FF", "00:1a:2b:3c:4d:5e"], "") == ["mac:00:1a:2b:3c:4d:5e"]

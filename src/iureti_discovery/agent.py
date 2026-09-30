@@ -1,7 +1,7 @@
 """Modo servicio: heartbeat con iurefficient, configuración remota, órdenes y escaneos programados.
 
 La sonda solo hace conexiones salientes. Contrato en docs/04-api-ingesta.md
-(«Gestión de sondas: POST /api/plugins/inventory/probes/heartbeat»).
+(«Gestión de sondas: POST /api/plugins/inventory/discovery/heartbeat»).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from .runtime import Busy, Runtime
 from .sync import SyncError
 
 log = logging.getLogger("iureti.agent")
-HEARTBEAT_PATH = "/api/plugins/inventory/probes/heartbeat"
+HEARTBEAT_PATH = "/api/plugins/inventory/discovery/heartbeat"
 TICK_SECONDS = 30
 CAPABILITIES = ["sweep", "ports", "oui", "snmp", "mdns", "ssdp", "http", "netbios", "enrich"]
 COLLECTOR_SETTINGS = {"snmp": None, "mdns": "use_mdns", "ssdp": "use_ssdp", "http": "use_http",

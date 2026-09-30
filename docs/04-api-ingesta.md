@@ -82,8 +82,9 @@ Envía un lote de activos descubiertos. Idempotente por `batch_id`.
 - `created_pending` — nuevo; queda **pendiente de aprobación** en iurefficient
 - `rejected` — con `reason`
 
-## Gestión de sondas: `POST /api/plugins/inventory/probes/heartbeat`
+## Gestión de sondas: `POST /api/plugins/inventory/discovery/heartbeat`
 
+Va en el mismo blueprint público que `/discovery/batches` (autenticación por token de sonda, sin sesión).
 La sonda **solo hace conexiones salientes** (HTTPS a iurefficient); nunca abre puertos. Cada
 `heartbeat_seconds` (300 por omisión) reporta su estado y recibe configuración y órdenes. Mismo token de
 sonda que la ingesta. El primer heartbeat de un token registra la sonda («conectada»).

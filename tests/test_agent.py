@@ -48,7 +48,7 @@ async def test_heartbeat_applies_config_and_queues_commands(rt):
     agent = make_agent(rt, handler)
     await agent.heartbeat()
     url, auth, body = seen[0]
-    assert url == "https://x.example/api/plugins/inventory/probes/heartbeat" and auth == "Bearer iurprobe_t"
+    assert url == "https://x.example/api/plugins/inventory/discovery/heartbeat" and auth == "Bearer iurprobe_t"
     assert body["probe"]["version"] and body["status"]["state"] == "idle" and body["config_version"] == ""
     s = rt.store.get_settings()
     assert s["managed"] and s["config_version"] == "c-1" and s["targets"] == ["10.0.1.0/24"]

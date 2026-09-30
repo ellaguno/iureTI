@@ -12,3 +12,4 @@ la red o en un servidor) y alimenta el módulo de **Inventario de iurefficient**
 | [05 — Seguridad y operación](05-seguridad.md) | Autorización, credenciales, huella en la red, relación con IDS/EDR |
 | [06 — Roadmap](06-roadmap.md) | Fases MVP → v2 → v3 y estado actual |
 | [07 — Distribución e instalación](07-distribucion.md) | `.deb` + systemd, Docker, `install.sh`, dónde va la sonda, publicar versiones |
+| [08 — Integración con iurefficient](08-integracion-iurefficient.md) | **Entrega para el módulo de inventario**: qué falta en iur-inventory 1.3.0, heartbeat, pantalla Sondas, datos de producto, pruebas de aceptación |
