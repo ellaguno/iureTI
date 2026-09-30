@@ -144,6 +144,28 @@ def port_scores(ports: set[int], scores: dict[str, float], reasons: list[str]) -
         add("switch", 1, "Telnet")
 
 
+# Prefijos de MAC de máquinas virtuales (y Docker antiguo, 02:42:…). Docker actual asigna MACs privadas
+# aleatorias: esos contenedores se reconocen por la red virtual de la sonda (atributo virtual_net).
+VIRTUAL_MAC_PREFIXES = [
+    ("02:42:", "contenedor Docker"),
+    ("52:54:00:", "máquina virtual KVM/QEMU"),
+    ("00:16:3e:", "máquina virtual Xen"),
+    ("08:00:27:", "máquina virtual VirtualBox"),
+    ("00:50:56:", "máquina virtual VMware"),
+    ("00:0c:29:", "máquina virtual VMware"),
+    ("00:05:69:", "máquina virtual VMware"),
+    ("00:15:5d:", "máquina virtual Hyper-V"),
+]
+
+
+def virtual_kind(macs: list[str]) -> str:
+    for mac in macs:
+        for prefix, label in VIRTUAL_MAC_PREFIXES:
+            if mac.lower().startswith(prefix):
+                return label
+    return ""
+
+
 UPNP_DEVICE_TYPES = [
     ("internetgatewaydevice", "router", 5),
     ("wlanaccesspoint", "access_point", 5),
@@ -186,6 +208,13 @@ def local_source_scores(asset: Asset, scores: dict[str, float], reasons: list[st
         add("mobile", 6, "servicio de sincronización de iPhone/iPad (62078)")
     if asset.attributes.get("os_family") == "windows" and not ports & {88, 389, 3268}:
         add("workstation", 1, "TTL de Windows")
+
+    if iface := asset.attributes.get("virtual_net"):
+        add("server", 3, f"contenedor o VM de la sonda (red virtual {iface})")
+        return  # una MAC privada de contenedor no sugiere un celular
+    if virtual := virtual_kind(asset.macs):
+        add("server", 3, f"{virtual} (prefijo de MAC)")
+        return
 
     private_mac = any(is_locally_administered(m) for m in asset.macs)
     if private_mac and not ports and not scores:

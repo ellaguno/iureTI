@@ -167,6 +167,10 @@ class Reconciler:
                 asset.attributes[flag] = True
             else:
                 asset.attributes.pop(flag, None)
+        if obs.virtual_net:
+            asset.attributes["virtual_net"] = obs.virtual_net
+        else:
+            asset.attributes.pop("virtual_net", None)
 
         if snmp:
             asset.attributes["snmp"] = asdict(snmp)

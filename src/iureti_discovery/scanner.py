@@ -187,9 +187,14 @@ class Scanner:
                 if ip in observations:
                     observations[ip].mdns = info
             gateways = netutil.default_gateways()
-            own = {n.address for n in netutil.local_networks()}
+            local_nets = netutil.local_networks()
+            own = {n.address for n in local_nets}
+            virtual = [(ipaddress.ip_network(n.network), n.interface) for n in local_nets if n.virtual]
             for ip, o in observations.items():
                 o.is_gateway, o.is_probe = ip in gateways, ip in own
+                if not o.is_probe:
+                    addr = ipaddress.ip_address(ip)
+                    o.virtual_net = next((iface for net, iface in virtual if addr in net), "")
             p.alive = len(observations)
             obs_list = list(observations.values())
 

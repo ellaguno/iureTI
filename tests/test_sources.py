@@ -82,6 +82,22 @@ def test_personal_announced_names_are_not_products():
     assert "Juan" not in repr(enrich.product_facts(a))
 
 
+@pytest.mark.parametrize("mac,label", [("02:42:ac:11:00:02", "Docker"), ("52:54:00:12:34:56", "KVM")])
+def test_containers_and_vms_are_not_mobiles(mac, label):
+    kind, _, reasons = classify(Asset(macs=[mac]))
+    assert kind == "server" and any(label in r for r in reasons)
+
+
+def test_container_on_probe_virtual_network_is_not_mobile():
+    rec = Reconciler([])
+    asset, _ = rec.merge(Observation(ip="172.19.0.4", mac="62:0d:b7:1c:3e:41", virtual_net="br-8bc5cbaf949f"))
+    assert asset.device_type == "server" and "red virtual br-8bc5cbaf949f" in asset.reasons[0]
+
+
+def test_private_mac_without_services_still_suggests_mobile():
+    assert classify(Asset(macs=["96:9e:f1:11:4d:33"]))[0] == "mobile"
+
+
 def test_iphone_port_is_mobile():
     assert classify(Asset(open_ports=[62078]))[0] == "mobile"
 

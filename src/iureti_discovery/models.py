@@ -52,6 +52,7 @@ class Observation:
     alive_by: list[str] = field(default_factory=list)  # ping, tcp, arp
     is_gateway: bool = False  # puerta de enlace por omisión de la sonda
     is_probe: bool = False  # la propia sonda
+    virtual_net: str = ""  # interfaz virtual de la sonda por la que se ve (docker0, br-…): contenedor/VM local
     ttl: int | None = None
     mdns: dict | None = None  # {"host", "services", "names", "txt"}
     upnp: dict | None = None  # descripción UPnP del dispositivo raíz

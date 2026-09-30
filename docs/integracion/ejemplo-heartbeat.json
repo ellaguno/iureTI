@@ -1,7 +1,7 @@
 {
  "probe": {
   "id": "sonda-matriz-01",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "site": "Matriz CDMX",
   "hostname": "srv-inventario",
   "os": "Ubuntu 24.04.5 LTS",
