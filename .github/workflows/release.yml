@@ -19,7 +19,7 @@ jobs:
         run: |
           v=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
           [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME ≠ versión $v"; exit 1; }
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       - run: uv sync --frozen && uv run pytest -q
 
   deb:
