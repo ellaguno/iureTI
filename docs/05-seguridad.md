@@ -32,6 +32,30 @@
   clave derivada.
 - Registro (log) de cada escaneo: quién lo lanzó, rangos, fuentes, duración.
 
+## Identificación por internet (opcional, desactivada por omisión)
+
+Se activa en Configuración › Búsqueda en internet y requiere una clave de API de Anthropic.
+
+**Qué se envía** (función `enrich.product_facts`, con prueba automática que lo verifica): tipo probable,
+fabricante, modelo, SO/firmware, sysObjectID y sysDescr de SNMP, fabricante/modelo/tipo UPnP, título y
+servidor de la página web del equipo con sus candidatos de modelo, servicios mDNS y su TXT de modelo, el
+nombre anunciado **solo si parece un producto** («Pixel 9 Pro»), familia de SO por TTL y puertos abiertos.
+
+**Qué nunca se envía**: IPs, MACs, hostnames, números de serie, `sysLocation`/`sysContact`, nombres que
+pone el usuario (`friendlyName`, «iPhone de Juan»), ni nada del cliente o de la red.
+
+Además, como última barrera, antes de enviar se borran de **todos** los campos de texto el hostname, el
+sysName, el nombre NetBIOS/mDNS, las series, las IPs y las MACs del equipo (p. ej. el `sysDescr` de Linux
+incluye el hostname: «Linux srv-contabilidad 5.15…» → «Linux [equipo] 5.15…»).
+
+**Protecciones**:
+- La sonda solo descarga imágenes/páginas de URLs **públicas** (resuelve el host y rechaza IPs privadas,
+  loopback y link-local) para que una URL devuelta por la búsqueda no la haga consultar la red interna.
+- Imágenes: solo `image/jpeg|png|webp|gif`, máximo 5 MB, guardadas en `~/.cache/iureti-discovery/images`.
+- La clave de API se guarda en la BD local (permisos 600) y se enmascara en la interfaz.
+- Modelo por omisión `claude-opus-5-5` con `fallbacks: "default"`: si el modelo declina una consulta, la
+  API la reintenta en el modelo de respaldo recomendado.
+
 ## Consideraciones legales / privacidad
 
 - Hostnames y usuarios de sesión pueden ser datos personales: tratarlos conforme al aviso

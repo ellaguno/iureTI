@@ -11,10 +11,12 @@
 │   ├─ ports     huella por puertos                                │
 │   ├─ oui       fabricante por MAC                                │
 │   ├─ snmp      v2c / v3                                          │
-│   ├─ (v2) mdns, ssdp, netbios, ldap, lldp/cdp, tablas ARP/MAC    │
+│   ├─ mdns, ssdp/upnp, http, netbios, ttl, dmi (la sonda)         │
+│   ├─ (v2) ldap, lldp/cdp, tablas ARP/MAC                         │
 │   └─ (v3) winrm, ssh, APIs de plataformas                        │
 │                                                                  │
 │  Clasificador ─▶ Conciliador (dedup) ─▶ SQLite local             │
+│  Enriquecimiento opcional ── HTTPS ──▶ Claude + búsqueda web     │
 │                                                                  │
 │  Sincronizador ── HTTPS + token ──▶ API inventario iurefficient  │
 └──────────────────────────────────────────────────────────────────┘
@@ -48,7 +50,7 @@ Resultado de conciliar observaciones:
 |---|---|
 | `id` | UUID local de la sonda |
 | `fingerprint` | Clave de identidad (ver abajo) |
-| `device_type` | `workstation`, `laptop`, `server`, `switch`, `router`, `firewall`, `access_point`, `printer`, `ups`, `nas`, `hypervisor`, `camera`, `phone`, `iot`, `unknown` |
+| `device_type` | `workstation`, `laptop`, `server`, `switch`, `router`, `firewall`, `access_point`, `printer`, `ups`, `nas`, `hypervisor`, `camera`, `phone` (teléfono IP), `mobile` (celular/tablet), `iot`, `unknown` |
 | `confidence` | 0–1, confianza de la clasificación |
 | `hostname`, `ips[]`, `macs[]`, `vendor`, `model`, `serial`, `os` | |
 | `open_ports[]` | |
@@ -92,6 +94,12 @@ src/iureti_discovery/
   netutil.py       rangos, interfaces locales, ping, TCP connect, caché ARP, DNS inverso
   oui.py           base OUI IEEE (descarga y caché)
   snmp.py          consultas SNMP v2c/v3
+  mdns.py          mDNS / DNS-SD (zeroconf)
+  upnp.py          SSDP + descripción UPnP
+  httpinfo.py      huella de la página web del equipo
+  netbios.py       NetBIOS Node Status
+  localhost.py     datos DMI de la propia sonda
+  enrich.py        identificación por internet (Claude + búsqueda web) e imagen del producto
   classify.py      clasificador por reglas
   reconcile.py     conciliación / deduplicación
   scanner.py       orquestador de un escaneo

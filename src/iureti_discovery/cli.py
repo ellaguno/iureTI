@@ -8,7 +8,7 @@ import json
 import sys
 import webbrowser
 
-from . import __version__, netutil, service
+from . import __version__, enrich, netutil, service
 from .oui import OuiDatabase
 from .store import Store
 from .sync import DEVICE_TYPE_LABELS, SyncError, build_batch, to_import_csv
@@ -95,6 +95,30 @@ def cmd_sync(args) -> None:
     print(f"Enviados {r['sent']} activos en {len(r['batches'])} lote(s): {r['results']}")
 
 
+def cmd_enrich(args) -> None:
+    store = Store(args.db)
+    if args.enable:
+        store.update_settings({"enrich_enabled": True})
+    ids = service.enrich_candidates(store, only_missing=not args.all)
+    if not ids:
+        print("No hay activos pendientes con datos de producto para buscar.")
+        return
+    for asset_id in ids:
+        asset = store.get_asset(asset_id)
+        label = f"{(asset.ips or [''])[0]:<16}{asset.vendor[:24]:<26}{asset.model[:30]}"
+        try:
+            r = service.enrich_asset(store, asset_id, force=args.all)
+        except enrich.EnrichError as exc:
+            print(f"{label}  ✗ {exc}")
+            if "Clave" in str(exc) or "desactivada" in str(exc):
+                sys.exit(1)
+            continue
+        e = r["asset"]["attributes"]["enrichment"]
+        found = e.get("product_name") if e.get("identified") else "no identificado"
+        extra = " (caché)" if r["cached"] else ""
+        print(f"{label}  → {found} [{e.get('confidence')}]{' 📷' if e.get('image_file') else ''}{extra}")
+
+
 def cmd_oui_update(args) -> None:
     print(f"Base OUI actualizada: {OuiDatabase().update()} fabricantes")
 
@@ -129,6 +153,11 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("sync", help="Envía los activos a iurefficient")
     p.add_argument("--changed", action="store_true", help="Solo los nuevos o con cambios desde el último envío")
     p.set_defaults(func=cmd_sync)
+
+    p = sub.add_parser("enrich", help="Identifica productos en internet (Claude + búsqueda web)")
+    p.add_argument("--all", action="store_true", help="Vuelve a buscar también los ya identificados")
+    p.add_argument("--enable", action="store_true", help="Activa la búsqueda en internet en la configuración")
+    p.set_defaults(func=cmd_enrich)
 
     p = sub.add_parser("oui-update", help="Descarga la base de fabricantes (IEEE)")
     p.set_defaults(func=cmd_oui_update)

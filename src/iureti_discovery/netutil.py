@@ -115,17 +115,33 @@ async def tcp_probe(ip: str, port: int, timeout: float) -> str:
 _PING = shutil.which("ping")
 
 
-async def ping(ip: str, timeout: float = 1.0) -> bool:
+async def ping(ip: str, timeout: float = 1.0) -> int | None:
+    """None si no responde; si responde, el TTL recibido (0 si no se pudo leer)."""
     if not _PING:
-        return False
+        return None
     try:
         proc = await asyncio.create_subprocess_exec(
-            _PING, "-c", "1", "-n", "-q", "-W", str(max(1, round(timeout))), ip,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            _PING, "-c", "1", "-n", "-W", str(max(1, round(timeout))), ip,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
         )
-        return await asyncio.wait_for(proc.wait(), timeout + 2) == 0
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout + 2)
     except (OSError, asyncio.TimeoutError):
-        return False
+        return None
+    if proc.returncode != 0:
+        return None
+    m = re.search(rb"ttl=(\d+)", out)
+    return int(m.group(1)) if m else 0
+
+
+def os_family_from_ttl(ttl: int | None) -> str:
+    """TTL inicial típico: 64 Linux/Android/macOS/iOS, 128 Windows, 255 equipos de red."""
+    if not ttl:
+        return ""
+    if ttl <= 64:
+        return "unix"
+    if ttl <= 128:
+        return "windows"
+    return "network"
 
 
 def default_gateways() -> set[str]:

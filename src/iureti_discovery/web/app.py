@@ -9,7 +9,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from .. import __version__, netutil, service
+import re
+
+from .. import __version__, enrich, netutil, service
 from ..models import DEVICE_TYPES, utcnow
 from ..oui import OuiDatabase
 from ..scanner import ScanProgress, Scanner
@@ -30,9 +32,13 @@ class DeleteRequest(BaseModel):
     ids: list[str]
 
 
+TOP_SECRETS = ("api_token", "anthropic_api_key")
+
+
 def _mask_settings(settings: dict) -> dict:
     out = dict(settings)
-    out["api_token"] = MASK if settings.get("api_token") else ""
+    for key in TOP_SECRETS:
+        out[key] = MASK if settings.get(key) else ""
     out["snmp_credentials"] = [
         {**c, **{f: MASK for f in SECRET_FIELDS if c.get(f)}} for c in settings.get("snmp_credentials", [])
     ]
@@ -41,8 +47,9 @@ def _mask_settings(settings: dict) -> dict:
 
 def _unmask_settings(new: dict, current: dict) -> dict:
     """Los campos secretos que llegan enmascarados conservan su valor guardado."""
-    if new.get("api_token") == MASK:
-        new["api_token"] = current.get("api_token", "")
+    for key in TOP_SECRETS:
+        if new.get(key) == MASK:
+            new[key] = current.get(key, "")
     if "snmp_credentials" in new:
         old = {c["name"]: c for c in current.get("snmp_credentials", [])}
         for cred in new["snmp_credentials"]:
@@ -57,7 +64,8 @@ def create_app(db_path: str | None = None) -> FastAPI:
     store = Store(db_path)
     oui = OuiDatabase()
     progress = ScanProgress()
-    state: dict = {"scanner": None, "task": None, "summary": None}
+    state: dict = {"scanner": None, "task": None, "summary": None,
+                   "enrich": {"running": False, "total": 0, "done": 0, "errors": [], "cached": 0}}
 
     @app.get("/", include_in_schema=False)
     def index():
@@ -76,6 +84,8 @@ def create_app(db_path: str | None = None) -> FastAPI:
             "counts": counts,
             "device_types": {t: DEVICE_TYPE_LABELS[t] for t in DEVICE_TYPES},
             "sync_configured": bool(store.get_settings().get("api_url")),
+            "enrich_enabled": bool(store.get_settings().get("enrich_enabled")),
+            "enrich": state["enrich"],
         }
 
     @app.get("/api/settings")
@@ -133,6 +143,49 @@ def create_app(db_path: str | None = None) -> FastAPI:
     def delete_assets(req: DeleteRequest):
         """Olvida activos localmente (p.ej. un rango escaneado por error). No afecta a iurefficient."""
         return {"deleted": store.delete_assets(req.ids)}
+
+    @app.post("/api/assets/{asset_id}/enrich")
+    async def enrich_one(asset_id: str, force: bool = False):
+        try:
+            return await asyncio.to_thread(service.enrich_asset, store, asset_id, force)
+        except enrich.EnrichError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/enrich")
+    async def enrich_bulk(only_missing: bool = True):
+        job = state["enrich"]
+        if job["running"]:
+            raise HTTPException(409, "Ya hay una búsqueda en curso")
+        if not store.get_settings().get("enrich_enabled"):
+            raise HTTPException(400, "La búsqueda en internet está desactivada (Configuración)")
+        ids = service.enrich_candidates(store, only_missing)
+        job.update(running=True, total=len(ids), done=0, errors=[], cached=0)
+
+        async def run():
+            try:
+                for asset_id in ids:
+                    try:
+                        r = await asyncio.to_thread(service.enrich_asset, store, asset_id)
+                        job["cached"] += r["cached"]
+                    except enrich.EnrichError as exc:
+                        job["errors"].append(str(exc))
+                        if "Clave" in str(exc) or "desactivada" in str(exc):
+                            break  # no tiene caso seguir
+                    job["done"] += 1
+            finally:
+                job["running"] = False
+
+        asyncio.create_task(run())
+        return job
+
+    @app.get("/api/images/{filename}", include_in_schema=False)
+    def image(filename: str):
+        if not re.fullmatch(r"[0-9a-f]{20}\.(jpg|png|webp|gif)", filename):
+            raise HTTPException(404)
+        path = enrich.images_dir() / filename
+        if not path.exists():
+            raise HTTPException(404)
+        return FileResponse(path, headers={"Cache-Control": "max-age=86400"})
 
     @app.get("/api/export.json")
     def export_json():

@@ -41,6 +41,7 @@ DEVICE_TYPE_LABELS = {
     "hypervisor": "Hipervisor",
     "camera": "Cámara",
     "phone": "Teléfono IP",
+    "mobile": "Celular / tablet",
     "iot": "IoT",
     "unknown": "Equipo",
 }
@@ -53,6 +54,10 @@ def asset_payload(asset: Asset) -> dict:
         "snmp_sys_descr": snmp.get("sys_descr", ""),
         "snmp_sys_contact": snmp.get("sys_contact", ""),
         "classification_reasons": asset.reasons,
+        "announced_name": asset.attributes.get("announced_name", ""),
+        "os_family": asset.attributes.get("os_family", ""),
+        "upnp_serial_decoded": (asset.attributes.get("upnp") or {}).get("serialDecoded", ""),
+        "product": product_summary(asset),
     }.items() if v}
     return {
         "probe_asset_id": asset.id,
@@ -73,6 +78,16 @@ def asset_payload(asset: Asset) -> dict:
         "last_seen": asset.last_seen,
         "attributes": attributes,
     }
+
+
+def product_summary(asset: Asset) -> dict:
+    """Identificación por internet (si la hubo), sin la huella enviada ni rutas locales."""
+    e = asset.attributes.get("enrichment") or {}
+    if not e.get("identified"):
+        return {}
+    keys = ("product_name", "manufacturer", "model", "description", "specs", "release_year", "support_status",
+            "product_url", "image_url", "confidence", "fetched_at")
+    return {k: e[k] for k in keys if e.get(k)}
 
 
 def clean_vendor(vendor: str) -> str:
@@ -108,7 +123,12 @@ def suggested_name(asset: Asset) -> str:
 
 
 def technical_description(asset: Asset) -> str:
-    parts = [f"Tipo de dispositivo: {DEVICE_TYPE_LABELS.get(asset.device_type, asset.device_type)}"]
+    parts = []
+    if product := product_summary(asset):
+        parts.append(" — ".join(x for x in (product.get("product_name"), product.get("description")) if x))
+        if product.get("product_url"):
+            parts.append(f"Ficha: {product['product_url']}")
+    parts.append(f"Tipo de dispositivo: {DEVICE_TYPE_LABELS.get(asset.device_type, asset.device_type)}")
     if asset.hostname:
         parts.append(f"Hostname: {asset.hostname}")
     if asset.ips:

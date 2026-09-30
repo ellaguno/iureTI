@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS scans (
     started_at TEXT, finished_at TEXT, targets TEXT, phase TEXT,
     alive INTEGER, new_assets INTEGER, error TEXT
 );
+CREATE TABLE IF NOT EXISTS enrichment (
+    key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -38,6 +43,14 @@ DEFAULT_SETTINGS = {
     "tcp_timeout": 0.8,
     "use_ping": True,
     "resolve_dns": True,
+    "use_mdns": True,
+    "use_ssdp": True,
+    "use_http": True,
+    "use_netbios": True,
+    # Búsqueda en internet (Claude + búsqueda web). Desactivada hasta que se configure.
+    "enrich_enabled": False,
+    "anthropic_api_key": "",
+    "enrich_model": "claude-opus-5-5",
 }
 
 
@@ -98,6 +111,20 @@ class Store:
         for r in rows:
             r["targets"] = json.loads(r["targets"] or "[]")
         return rows
+
+    # --- caché de enriquecimiento (por huella de producto) ------------------
+    def get_enrichment(self, key: str) -> dict | None:
+        with self._lock:
+            row = self.conn.execute("SELECT data FROM enrichment WHERE key = ?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_enrichment(self, key: str, data: dict, created_at: str) -> None:
+        with self._lock, self.conn:
+            self.conn.execute(
+                "INSERT INTO enrichment (key, data, created_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET data=excluded.data, created_at=excluded.created_at",
+                (key, json.dumps(data), created_at),
+            )
 
     # --- configuración -----------------------------------------------------
     def get_settings(self) -> dict:

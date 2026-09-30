@@ -12,6 +12,11 @@ Propuesta de contrato entre la sonda y el módulo de Inventario de iurefficient.
 > 4. Correcciones al contrato: la ruta real es
 >    `POST /api/plugins/inventory/discovery/batches` y `inventory_id` es un **UUID** (texto).
 
+> **Cambio v0.2 (2026-09-30)**: el catálogo `device_type` suma **`mobile`** (celular/tablet) para no
+> confundir smartphones con `phone` (teléfono IP de escritorio). Son 16 tipos; D0 debe incluirlo.
+> `attributes` suma `product` (identificación por internet: `product_name`, `description`, `specs`,
+> `product_url`, `image_url`, `confidence`…), `announced_name`, `os_family` y `upnp_serial_decoded`.
+
 ## Autenticación
 
 - Cada sonda se registra en iurefficient y recibe un **token de sonda** (por tenant/cliente).

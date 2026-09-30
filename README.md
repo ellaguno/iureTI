@@ -34,6 +34,7 @@ Desde la terminal:
 uv run iureti-discovery networks                          # redes de este equipo
 uv run iureti-discovery scan 192.168.1.0/24 --community public
 uv run iureti-discovery export --format csv -o activos.csv # para Inventario › Importar
+uv run iureti-discovery enrich --enable                     # identifica productos en internet (requiere ANTHROPIC_API_KEY)
 uv run iureti-discovery sync                               # envía a iurefficient (URL y token en la configuración)
 ```
 

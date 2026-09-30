@@ -1,6 +1,6 @@
 [project]
 name = "iureti-discovery"
-version = "0.1.0"
+version = "0.2.0"
 description = "Sonda de autodescubrimiento de recursos de TI para el inventario de iurefficient"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn>=0.29",
     "pysnmp>=7.1",
     "httpx>=0.27",
+    "anthropic>=1.9.0",
+    "zeroconf>=0.151.5",
 ]
 
 [project.scripts]

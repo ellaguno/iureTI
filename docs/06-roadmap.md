@@ -22,6 +22,17 @@ Estimado: 4–6 semanas, 1 desarrollador.
 - [ ] Pruebas en red real de cliente
 - [ ] Endpoint de ingesta del lado de iurefficient (tramos D0–D3 del plan de iurefficient)
 
+## v0.2 — identificación ampliada (2026-09-30)
+- [x] mDNS / DNS-SD escuchando durante todo el barrido (celulares Android/iOS, Chromecast, impresoras, HomeKit…)
+- [x] SSDP/UPnP: fabricante, modelo, serie (incluye decodificación de serie GPON) y tipo de dispositivo
+- [x] Huella de la página web: título, `Server`, realm y candidatos de modelo
+- [x] NetBIOS (nombre y grupo de Windows/Samba), TTL → familia de SO, puerto 62078 (iPhone/iPad)
+- [x] La sonda se describe a sí misma (DMI + os-release)
+- [x] Tipo `mobile` (celular/tablet) separado de `phone` (teléfono IP)
+- [x] Identificación por internet con Claude + búsqueda web: nombre comercial, descripción, ficha y foto; caché por producto
+- [ ] Probar la identificación por internet con clave real (solo probado con cliente simulado)
+- [ ] Clave de Anthropic en keyring en vez de la BD local
+
 ## v2 — +4–6 semanas
 - **GLPI-Agent (adelantado de v3)**: inventario de laptops y de software instalado; el
   software se cruza con los asientos de licencia del inventario de iurefficient

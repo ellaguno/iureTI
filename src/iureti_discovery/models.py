@@ -20,6 +20,7 @@ DEVICE_TYPES = [
     "hypervisor",
     "camera",
     "phone",
+    "mobile",
     "iot",
     "unknown",
 ]
@@ -51,6 +52,11 @@ class Observation:
     alive_by: list[str] = field(default_factory=list)  # ping, tcp, arp
     is_gateway: bool = False  # puerta de enlace por omisión de la sonda
     is_probe: bool = False  # la propia sonda
+    ttl: int | None = None
+    mdns: dict | None = None  # {"host", "services", "names", "txt"}
+    upnp: dict | None = None  # descripción UPnP del dispositivo raíz
+    http: dict | None = None  # {"server", "title", "realm", "model_candidates", "url"}
+    netbios: dict | None = None  # {"name", "group"}
     snmp: SnmpInfo | None = None
     observed_at: str = field(default_factory=utcnow)
 
@@ -63,6 +69,9 @@ class Observation:
             src.append("oui")
         if self.snmp:
             src.append("snmp")
+        for name in ("mdns", "upnp", "http", "netbios"):
+            if getattr(self, name):
+                src.append(name)
         return src
 
 

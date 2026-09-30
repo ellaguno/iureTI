@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from .models import Asset
+from .mdns import hint_for, txt_value
+from .models import DEVICE_TYPES, Asset
+from .netutil import is_locally_administered
 
 # Enterprise OID (1.3.6.1.4.1.<n>) → (fabricante, tipo probable o None)
 ENTERPRISES: dict[int, tuple[str, str | None]] = {
@@ -82,6 +84,10 @@ VENDOR_HINTS: list[tuple[str, str, int]] = [
 ]
 
 HOSTNAME_HINTS: list[tuple[str, str, int]] = [
+    (r"^(android|pixel|galaxy|iphone|ipad|redmi|moto|oneplus|xiaomi|huawei-p|honor)", "mobile", 5),
+    (r"^(macbook)", "laptop", 4),
+    (r"^(imac|mac-?mini|mac-?pro|mac-?studio)", "workstation", 4),
+    (r"^(chromecast|appletv|apple-tv|roku|firetv|sonos|google-home|nest|echo-)", "iot", 4),
     (r"^(sw|swi|switch)[-_\d]|[-_](sw|switch)\d*$", "switch", 3),
     (r"^(fw|firewall)[-_\d]", "firewall", 3),
     (r"^(ap|wap)[-_\d]", "access_point", 3),
@@ -138,6 +144,54 @@ def port_scores(ports: set[int], scores: dict[str, float], reasons: list[str]) -
         add("switch", 1, "Telnet")
 
 
+UPNP_DEVICE_TYPES = [
+    ("internetgatewaydevice", "router", 5),
+    ("wlanaccesspoint", "access_point", 5),
+    ("printer", "printer", 6),
+    ("mediarenderer", "iot", 3),
+    ("mediaserver", "nas", 2),
+]
+ANNOUNCED_TYPES = {"phone": "mobile", "tablet": "mobile", "laptop": "laptop", "desktop": "workstation", "tv": "iot"}
+
+
+def local_source_scores(asset: Asset, scores: dict[str, float], reasons: list[str]) -> None:
+    def add(kind: str, pts: float, why: str) -> None:
+        scores[kind] += pts
+        reasons.append(why)
+
+    mdns = asset.attributes.get("mdns") or {}
+    for service in mdns.get("services", []):
+        if (hint := hint_for(service)) and hint[1]:
+            label, kind = hint
+            add(kind, 4, f"anuncia {label} (mDNS)")
+    if (announced := txt_value(mdns, "type").lower()) in ANNOUNCED_TYPES:
+        add(ANNOUNCED_TYPES[announced], 6, f"se anuncia como «{announced}» (mDNS)")
+
+    device_type = ((asset.attributes.get("upnp") or {}).get("deviceType") or "").lower()
+    for needle, kind, pts in UPNP_DEVICE_TYPES:
+        if needle in device_type:
+            add(kind, pts, f"UPnP {device_type.split(':')[-2] if ':' in device_type else device_type}")
+
+    found = asset.attributes.get("enrichment") or {}
+    if found.get("identified") and found.get("device_type") in DEVICE_TYPES and found.get("device_type") != "unknown":
+        weight = {"alta": 8, "media": 5}.get(found.get("confidence"), 0)
+        if weight:
+            add(found["device_type"], weight, f"identificado en internet como {found.get('product_name') or found.get('model')}")
+
+    if chassis := asset.attributes.get("chassis"):
+        add(chassis, 8, "este equipo (la sonda): tipo de chasis DMI")
+
+    ports = set(asset.open_ports)
+    if 62078 in ports:
+        add("mobile", 6, "servicio de sincronización de iPhone/iPad (62078)")
+    if asset.attributes.get("os_family") == "windows" and not ports & {88, 389, 3268}:
+        add("workstation", 1, "TTL de Windows")
+
+    private_mac = any(is_locally_administered(m) for m in asset.macs)
+    if private_mac and not ports and not scores:
+        add("mobile", 2, "MAC privada y sin servicios abiertos: probable celular o tablet")
+
+
 def classify(asset: Asset) -> tuple[str, float, list[str]]:
     scores: dict[str, float] = defaultdict(float)
     reasons: list[str] = []
@@ -150,7 +204,13 @@ def classify(asset: Asset) -> tuple[str, float, list[str]]:
             scores[kind] += 4
             reasons.append(f"sysObjectID de {name}")
 
-    text = " ".join([snmp.get("sys_descr", ""), asset.model, asset.os]).lower()
+    upnp = asset.attributes.get("upnp") or {}
+    http = asset.attributes.get("http") or {}
+    text = " ".join([
+        snmp.get("sys_descr", ""), asset.model, asset.os,
+        upnp.get("modelName", ""), upnp.get("modelDescription", ""), upnp.get("friendlyName", ""),
+        http.get("title", ""), http.get("realm", ""), http.get("server", ""),
+    ]).lower()
     for pattern, kind, weight in TEXT_RULES:
         if text.strip() and re.search(pattern, text):
             scores[kind] += weight
@@ -169,6 +229,7 @@ def classify(asset: Asset) -> tuple[str, float, list[str]]:
             reasons.append(f"nombre '{hostname}'")
 
     port_scores(set(asset.open_ports), scores, reasons)
+    local_source_scores(asset, scores, reasons)
 
     if asset.attributes.get("is_gateway"):
         # Suele ser router o firewall; si ya hay indicios de firewall, se respetan

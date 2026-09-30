@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from . import enrich
+from .classify import classify
+from .models import utcnow
 from .oui import OuiDatabase
 from .reconcile import Reconciler
 from .scanner import ScanOptions, ScanProgress, Scanner
@@ -25,6 +28,10 @@ def make_scanner(store: Store, targets: list[str], progress: ScanProgress | None
         tcp_timeout=float(s["tcp_timeout"]),
         use_ping=bool(s["use_ping"]),
         resolve_dns=bool(s["resolve_dns"]),
+        use_mdns=bool(s["use_mdns"]),
+        use_ssdp=bool(s["use_ssdp"]),
+        use_http=bool(s["use_http"]),
+        use_netbios=bool(s["use_netbios"]),
     )
     return Scanner(opts, oui=oui, progress=progress)
 
@@ -66,3 +73,40 @@ def sync_all(store: Store, only_changed: bool = False) -> dict:
         for a in changed:
             summary["results"][a.remote_status] = summary["results"].get(a.remote_status, 0) + 1
     return summary
+
+
+def enrich_asset(store: Store, asset_id: str, force: bool = False, client=None) -> dict:
+    """Identifica el producto de un activo en internet. Usa la caché por huella de producto."""
+    settings = store.get_settings()
+    if not settings.get("enrich_enabled"):
+        raise enrich.EnrichError("La búsqueda en internet está desactivada (Configuración › Búsqueda en internet)")
+    asset = store.get_asset(asset_id)
+    if asset is None:
+        raise enrich.EnrichError("Activo no encontrado")
+    facts = enrich.product_facts(asset)
+    if not enrich.has_product_clues(facts):
+        raise enrich.EnrichError("No hay datos del producto para buscar (solo fabricante de la MAC o nada)")
+    key = enrich.facts_key(facts)
+    result = None if force else store.get_enrichment(key)
+    cached = result is not None
+    if result is None:
+        client = client or enrich.make_client(settings.get("anthropic_api_key", ""))
+        result = enrich.identify(facts, client, settings.get("enrich_model") or enrich.DEFAULT_MODEL)
+        result["image_url"], result["image_file"] = enrich.resolve_image(result)
+        result["key"], result["fetched_at"], result["facts_sent"] = key, utcnow(), facts
+        store.save_enrichment(key, result, result["fetched_at"])
+    enrich.apply(asset, result)
+    if not asset.type_locked:
+        asset.device_type, asset.confidence, asset.reasons = classify(asset)
+    store.save_assets([asset])
+    return {"asset": asset.to_dict(), "cached": cached}
+
+
+def enrich_candidates(store: Store, only_missing: bool = True) -> list[str]:
+    ids = []
+    for a in store.list_assets():
+        if only_missing and a.attributes.get("enrichment"):
+            continue
+        if enrich.has_product_clues(enrich.product_facts(a)):
+            ids.append(a.id)
+    return ids

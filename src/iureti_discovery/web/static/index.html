@@ -65,6 +65,13 @@ td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fo
 .toolbar .spacer { flex: 1; }
 .cred { border: 1px dashed var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
 #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 10; }
+.thumb { width: 36px; height: 36px; object-fit: contain; border-radius: 6px; background: #fff; border: 1px solid var(--border); vertical-align: middle; margin-right: 8px; float: left; }
+.product { display: flex; gap: 16px; align-items: flex-start; margin: 6px 0 10px; flex-wrap: wrap; }
+.product img { width: 160px; max-height: 160px; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid var(--border); padding: 6px; }
+.product .info { flex: 1 1 280px; }
+.product h3 { margin: 0 0 4px; font-size: 15px; }
+.product ul { margin: 6px 0; padding-left: 18px; }
+.badge { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--chip); margin-left: 6px; }
 .notice { border-left: 3px solid var(--warn); padding: 8px 12px; background: var(--chip); border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
 </style>
 </head>
@@ -120,11 +127,13 @@ td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fo
       <input type="search" id="q" placeholder="Buscar IP, nombre, MAC, fabricante…">
       <select id="f-type"><option value="">Todos los tipos</option></select>
       <span class="spacer"></span>
+      <button class="btn" id="enrich-all" title="Identifica productos en internet (Claude + búsqueda web)">Buscar en internet</button>
       <button class="btn danger" id="delete-sel" disabled>Olvidar seleccionados</button>
       <button class="btn" id="export-csv" title="CSV con los encabezados de Inventario › Importar">CSV para importar</button>
       <button class="btn" id="export-json">JSON (contrato API)</button>
       <button class="btn primary" id="sync">Enviar a iurefficient</button>
     </div>
+    <p class="small muted" id="enrich-progress" style="margin-top:0"></p>
     <p class="small muted" style="margin-top:0">La sonda envía todo lo que ve; la aprobación, ligar a activos existentes o ignorar se hace en la bandeja <b>Descubiertos</b> del inventario de iurefficient.</p>
     <div class="table-wrap"><table>
       <thead><tr>
@@ -168,6 +177,23 @@ td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fo
       <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-use_ping" style="width:auto"> Ping</label>
       <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-resolve_dns" style="width:auto"> DNS inverso</label>
     </div>
+    <div class="row" style="margin-top:10px">
+      <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-use_mdns" style="width:auto"> mDNS</label>
+      <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-use_ssdp" style="width:auto"> UPnP/SSDP</label>
+      <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-use_http" style="width:auto"> Página web del equipo</label>
+      <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-use_netbios" style="width:auto"> NetBIOS</label>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Búsqueda en internet</h2>
+    <p class="small muted" style="margin-top:0">Identifica el producto (nombre comercial, descripción, ficha y foto) con Claude y búsqueda web.
+      Solo se envían datos del <b>producto</b>: marca, modelo, lo que el equipo anuncia por SNMP/UPnP/mDNS/web y sus puertos.
+      <b>Nunca</b> IPs, MACs, nombres de equipo, números de serie ni ubicaciones. Cada modelo se consulta una sola vez (caché).</p>
+    <div class="row">
+      <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-enrich_enabled" style="width:auto"> Activar</label>
+      <div><label>Clave de API de Anthropic (vacío = variable ANTHROPIC_API_KEY)</label><input id="s-anthropic_api_key" type="password" autocomplete="off"></div>
+      <div><label>Modelo</label><input id="s-enrich_model"></div>
+    </div>
   </div>
   <div class="card">
     <h2>Base de fabricantes (OUI IEEE)</h2>
@@ -183,6 +209,7 @@ td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fo
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let enrichEnabled = false, enrichTimer = null;
 let TYPES = {}, assets = [], selected = new Set(), expanded = new Set(), settings = null, pollTimer = null;
 
 function toast(msg, ms = 3500) {
@@ -219,6 +246,12 @@ async function loadStatus() {
   });
   $("#oui-status").textContent = st.oui_available ? "Base OUI disponible." : "Base OUI no descargada: el fabricante por MAC no se mostrará.";
   renderStats(st.counts);
+  enrichEnabled = st.enrich_enabled;
+  $("#enrich-all").disabled = !enrichEnabled || st.enrich.running;
+  $("#enrich-all").title = enrichEnabled ? "Identifica productos en internet (Claude + búsqueda web)" : "Actívala en Configuración › Búsqueda en internet";
+  const ej = st.enrich;
+  $("#enrich-progress").textContent = ej.running ? `Buscando en internet… ${ej.done}/${ej.total}`
+    : ej.total ? `Búsqueda en internet: ${ej.done}/${ej.total} activos (${ej.cached} desde caché)${ej.errors.length ? ". Errores: " + [...new Set(ej.errors)].join("; ") : ""}.` : "";
   renderProgress(st.scan, st.last_summary);
   return st;
 }
@@ -286,7 +319,7 @@ function renderAssets() {
       <td class="mono"><a href="#" class="toggle">${esc(a.ips[0] || "")}</a>${a.ips.length > 1 ? ` <span class="muted">+${a.ips.length - 1}</span>` : ""}</td>
       <td>${esc(a.hostname)}</td>
       <td><span class="type">${esc(TYPES[a.device_type] || a.device_type)}</span> <span class="conf">${Math.round(a.confidence * 100)}%</span></td>
-      <td>${esc(a.vendor)}${a.model ? `<br><span class="muted small">${esc(a.model)}</span>` : ""}</td>
+      <td>${thumb(a)}${esc(a.vendor)}${a.model ? `<br><span class="muted small">${esc(a.model)}</span>` : ""}</td>
       <td class="mono">${esc(a.serial)}</td>
       <td class="mono">${esc(a.macs[0] || "")}</td>
       <td class="mono small">${esc(a.open_ports.join(" "))}</td>
@@ -295,6 +328,8 @@ function renderAssets() {
     if (!expanded.has(a.id)) return row;
     const s = a.attributes.snmp || {};
     return row + `<tr class="detail"><td></td><td colspan="9">
+      ${productBlock(a)}
+      ${localBlock(a)}
       <div><b>Huella:</b> <span class="mono">${esc(a.fingerprint)}</span> · <b>Fuentes:</b> ${esc(a.sources.join(", "))} · <b>Vivo por:</b> ${esc((a.attributes.alive_by || []).join(", "))}</div>
       <div><b>Clasificación:</b> ${esc(a.reasons.join("; ") || "sin indicios")}</div>
       <div><b>IPs:</b> <span class="mono">${esc(a.ips.join(", "))}</span> · <b>MACs:</b> <span class="mono">${esc(a.macs.join(", "))}</span></div>
@@ -307,10 +342,49 @@ function renderAssets() {
     e.preventDefault(); const id = el.closest("tr").dataset.id;
     expanded.has(id) ? expanded.delete(id) : expanded.add(id); renderAssets();
   });
+  document.querySelectorAll("#assets .enrich").forEach((el) => el.onclick = async () => {
+    const force = el.textContent !== "Buscar en internet";
+    el.disabled = true; el.textContent = "Buscando…";
+    try {
+      const r = await api(`/api/assets/${el.dataset.id}/enrich?force=${force}`, { method: "POST" });
+      toast(r.cached ? "Resultado tomado de la caché (mismo producto ya consultado)." : "Producto identificado.");
+      loadAssets();
+    } catch (e) { toast(e.message, 6000); el.disabled = false; el.textContent = "Buscar en internet"; }
+  });
   document.querySelectorAll("#assets .sel").forEach((el) => el.onchange = () => {
     const id = el.closest("tr").dataset.id; el.checked ? selected.add(id) : selected.delete(id); updateSel();
   });
   updateSel();
+}
+function imgSrc(a) {
+  const e = a.attributes.enrichment || {};
+  return e.image_file ? `/api/images/${e.image_file}` : "";
+}
+function thumb(a) { const src = imgSrc(a); return src ? `<img class="thumb" src="${src}" alt="" loading="lazy">` : ""; }
+function productBlock(a) {
+  const e = a.attributes.enrichment;
+  const btn = `<button class="btn enrich" data-id="${a.id}" ${enrichEnabled ? "" : "disabled title='Actívala en Configuración'"}>${e ? "Volver a buscar" : "Buscar en internet"}</button>`;
+  if (!e) return `<div style="margin:4px 0 10px">${btn}</div>`;
+  if (!e.identified) return `<div class="product"><div class="info"><b>No identificado en internet.</b> ${esc(e.notes)} ${btn}</div></div>`;
+  const src = imgSrc(a);
+  return `<div class="product">${src ? `<img src="${src}" alt="${esc(e.product_name)}">` : ""}
+    <div class="info"><h3>${esc(e.product_name || e.model)}<span class="badge">confianza ${esc(e.confidence)}</span></h3>
+      <div>${esc(e.description)}</div>
+      ${e.specs?.length ? `<ul>${e.specs.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+      <div class="small muted">${[e.release_year && "Lanzamiento: " + esc(e.release_year), e.support_status && "Soporte: " + esc(e.support_status)].filter(Boolean).join(" · ")}</div>
+      <div class="small">${e.product_url ? `<a href="${esc(e.product_url)}" target="_blank" rel="noopener noreferrer">Ficha del producto</a> · ` : ""}<span class="muted">Consultado ${fmtDate(e.fetched_at)}</span> ${btn}</div>
+      ${e.notes ? `<div class="small muted">${esc(e.notes)}</div>` : ""}
+    </div></div>`;
+}
+function localBlock(a) {
+  const at = a.attributes, u = at.upnp || {}, h = at.http || {}, m = at.mdns || {}, nb = at.netbios || {};
+  const lines = [];
+  if (u.manufacturer || u.modelName) lines.push(`<b>UPnP:</b> ${esc([u.manufacturer, u.modelName, u.modelNumber].filter(Boolean).join(" · "))}${u.serialNumber ? ` · serie <span class="mono">${esc(u.serialNumber)}</span>${u.serialDecoded ? ` (${esc(u.serialDecoded)})` : ""}` : ""}`);
+  if (h.title || h.server || h.realm || h.model_candidates) lines.push(`<b>Web:</b> ${esc([h.title, h.realm, h.server].filter(Boolean).join(" · "))}${h.model_candidates ? ` · posibles modelos: ${esc(h.model_candidates.join(", "))}` : ""}${h.url ? ` · <a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">abrir</a>` : ""}`);
+  if (m.services?.length) lines.push(`<b>mDNS:</b> ${esc(m.host || "")} · ${esc(m.services.join(", "))}${at.announced_name ? ` · se anuncia como «${esc(at.announced_name)}»` : ""}`);
+  if (nb.name) lines.push(`<b>NetBIOS:</b> ${esc(nb.name)}${nb.group ? " · grupo " + esc(nb.group) : ""}`);
+  if (at.ttl) lines.push(`<b>TTL:</b> ${at.ttl} (${esc({unix: "Linux/Android/macOS/iOS", windows: "Windows", network: "equipo de red"}[at.os_family] || "")})`);
+  return lines.map((l) => `<div>${l}</div>`).join("");
 }
 function updateSel() { $("#delete-sel").disabled = !selected.size; $("#delete-sel").textContent = selected.size ? `Olvidar ${selected.size}` : "Olvidar seleccionados"; }
 $("#sel-all").onchange = (e) => { document.querySelectorAll("#assets .sel").forEach((el) => { el.checked = e.target.checked; const id = el.closest("tr").dataset.id; e.target.checked ? selected.add(id) : selected.delete(id); }); updateSel(); };
@@ -319,6 +393,14 @@ $("#f-type").onchange = renderAssets;
 $("#delete-sel").onclick = async () => {
   const r = await api("/api/assets/delete", { method: "POST", body: JSON.stringify({ ids: [...selected] }) });
   toast(`${r.deleted} activos olvidados en la sonda (no afecta a iurefficient).`); selected.clear(); loadAssets();
+};
+$("#enrich-all").onclick = async () => {
+  try {
+    const r = await api("/api/enrich", { method: "POST" });
+    if (!r.total) return toast("No hay activos pendientes con datos de producto para buscar.");
+    const tick = async () => { const st = await loadStatus(); if (st.enrich.running) enrichTimer = setTimeout(tick, 1500); else loadAssets(); };
+    tick();
+  } catch (e) { toast(e.message, 6000); }
 };
 $("#export-csv").onclick = () => (location.href = "/api/export.csv");
 $("#export-json").onclick = () => (location.href = "/api/export.json");
@@ -334,8 +416,8 @@ $("#sync").onclick = async () => {
 };
 
 // ---------- configuración ----------
-const SIMPLE = ["probe_id", "site", "api_url", "api_token", "concurrency", "tcp_timeout"];
-const BOOLS = ["use_ping", "resolve_dns"];
+const SIMPLE = ["probe_id", "site", "api_url", "api_token", "concurrency", "tcp_timeout", "anthropic_api_key", "enrich_model"];
+const BOOLS = ["use_ping", "resolve_dns", "use_mdns", "use_ssdp", "use_http", "use_netbios", "enrich_enabled"];
 async function loadSettings() {
   settings = await api("/api/settings");
   SIMPLE.forEach((k) => ($("#s-" + k).value = settings[k] ?? ""));
@@ -372,7 +454,7 @@ $("#save-settings").onclick = async () => {
   body.concurrency = parseInt(body.concurrency, 10) || 256;
   body.tcp_timeout = parseFloat(body.tcp_timeout) || 0.8;
   BOOLS.forEach((k) => (body[k] = $("#s-" + k).checked));
-  try { settings = await api("/api/settings", { method: "PUT", body: JSON.stringify(body) }); renderCreds(); toast("Configuración guardada."); }
+  try { settings = await api("/api/settings", { method: "PUT", body: JSON.stringify(body) }); renderCreds(); toast("Configuración guardada."); loadStatus(); }
   catch (e) { toast(e.message); }
 };
 $("#oui-update").onclick = async () => {
