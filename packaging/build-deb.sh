@@ -46,6 +46,20 @@ install -m 0644 "$SRC/packaging/systemd/iureti-discovery.service" "$PKG/lib/syst
 install -m 0644 "$SRC/packaging/deb/default" "$PKG/etc/default/iureti-discovery"
 install -m 0755 "$SRC/packaging/deb/postinst" "$SRC/packaging/deb/prerm" "$SRC/packaging/deb/postrm" "$PKG/DEBIAN/"
 echo "/etc/default/iureti-discovery" > "$PKG/DEBIAN/conffiles"
+DOC="$PKG/usr/share/doc/iureti-discovery"
+mkdir -p "$DOC"
+{
+    echo "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/"
+    echo "Upstream-Name: iureti-discovery"
+    echo "Source: https://github.com/ellaguno/iureTI"
+    echo
+    echo "Files: *"
+    echo "Copyright: 2026 Eduardo Llaguno / iurefficient"
+    echo "License: Apache-2.0"
+    echo " Ver /usr/share/doc/iureti-discovery/LICENSE y NOTICE."
+    echo " El Python y las bibliotecas incluidos en /opt/iureti conservan sus propias licencias."
+} > "$DOC/copyright"
+install -m 0644 "$SRC/LICENSE" "$SRC/NOTICE" "$DOC/"
 
 SIZE=$(du -sk "$PKG" | cut -f1)
 cat > "$PKG/DEBIAN/control" <<CONTROL

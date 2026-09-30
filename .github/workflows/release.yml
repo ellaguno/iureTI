@@ -74,6 +74,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.description=Sonda de inventario de TI para iurefficient
+            org.opencontainers.image.licenses=Apache-2.0
 
   release:
     needs: [deb, docker]

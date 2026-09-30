@@ -60,3 +60,8 @@ La interfaz escucha solo en `127.0.0.1`. En un servidor sin escritorio, usa un t
 ```bash
 uv run pytest
 ```
+
+## Licencia
+
+[Apache License 2.0](LICENSE). Ver también [NOTICE](NOTICE): la licencia no otorga derechos sobre los
+nombres «iureTI» e «iurefficient».

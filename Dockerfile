@@ -4,6 +4,10 @@
 #     -v iureti-data:/data ghcr.io/ellaguno/iureti:latest
 FROM python:3.12-slim
 
+LABEL org.opencontainers.image.title="iureTI Discovery" \
+      org.opencontainers.image.source="https://github.com/ellaguno/iureTI" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends iputils-ping iproute2 \
  && rm -rf /var/lib/apt/lists/* \
@@ -13,7 +17,7 @@ RUN apt-get update \
 COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
 
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev && rm /usr/local/bin/uv
