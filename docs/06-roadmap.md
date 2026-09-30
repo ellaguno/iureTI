@@ -42,7 +42,7 @@ Estimado: 4–6 semanas, 1 desarrollador.
 - [x] `.deb` con Python propio + systemd endurecido (amd64/arm64), probado en Ubuntu 22.04/24.04 y Debian 12
 - [x] Imagen Docker multi‑arquitectura; `install.sh` con verificación SHA‑256
 - [x] GitHub Actions: CI y release por tag
-- [ ] Primer release publicado (`v0.3.0`) y prueba del runner arm64
+- [x] Primer release publicado (`v0.3.0`): `.deb` amd64 y arm64 (instalación probada en CI en ambas arquitecturas), imagen `ghcr.io/ellaguno/iureti` pública, `install.sh` verificado contra el release real
 - [ ] Del lado de iurefficient: pantalla Sondas + endpoint de heartbeat
 - [ ] Appliance Raspberry Pi / OVA; repositorio apt firmado
 
