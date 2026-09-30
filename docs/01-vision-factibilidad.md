@@ -14,8 +14,9 @@ Una aplicación autónoma para Linux — **iureTI Discovery** — que:
 1. Se instala en un equipo de la red del cliente (PC con escritorio, VM o servidor).
 2. Descubre activos combinando varias fuentes (red, SNMP, directorio, APIs).
 3. Clasifica y deduplica lo encontrado.
-4. Presenta los hallazgos en una interfaz para revisión.
-5. Envía los activos aprobados a la API de inventario de iurefficient.
+4. Muestra los hallazgos en una interfaz local (previsualización).
+5. Envía **todo** lo que ve a la API de inventario de iurefficient; la aprobación ocurre
+   allá, en la bandeja de descubiertos (aprobar, ligar a un activo existente o ignorar).
 
 La interfaz es **web local** (servida por la propia sonda): funciona igual en un equipo
 con escritorio (se abre en el navegador local) que en un servidor sin GUI (se accede

@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iureTI Discovery</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --border: #e3e6eb;
+  --accent: #2563eb; --accent-text: #ffffff; --danger: #c2410c; --ok: #15803d; --warn: #b45309;
+  --chip: #eef2f7; --row-hover: #f3f6fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --panel: #1a1f27; --text: #e6e9ef; --muted: #98a2b3; --border: #2a313c;
+    --accent: #4f8cff; --accent-text: #0b1020; --danger: #f97316; --ok: #4ade80; --warn: #fbbf24;
+    --chip: #232a35; --row-hover: #202733;
+  }
+}
+* { box-sizing: border-box; }
+a { color: var(--accent); }
+body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+header h1 { font-size: 17px; margin: 0; }
+header .ver { color: var(--muted); font-size: 12px; }
+nav { display: flex; gap: 4px; margin-left: auto; }
+nav button { background: none; border: 0; color: var(--muted); padding: 8px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
+nav button.active { background: var(--chip); color: var(--text); font-weight: 600; }
+main { max-width: 1280px; margin: 0 auto; padding: 20px 16px; }
+section.tab { display: none; }
+section.tab.active { display: block; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 15px; margin: 0 0 12px; }
+label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; width: 100%; }
+textarea { min-height: 70px; resize: vertical; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+.row > * { flex: 1 1 180px; }
+button.btn { font: inherit; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 6px; padding: 7px 14px; cursor: pointer; white-space: nowrap; }
+button.btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.btn.danger { color: var(--danger); }
+button.btn:disabled { opacity: .5; cursor: default; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; border: 1px solid transparent; }
+.chip.virtual { opacity: .65; }
+.progress { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; margin: 10px 0 6px; }
+.progress > div { height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.stats { display: flex; gap: 12px; flex-wrap: wrap; }
+.stat { flex: 1 1 110px; background: var(--chip); border-radius: 8px; padding: 10px 12px; }
+.stat b { display: block; font-size: 20px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+tbody tr:hover { background: var(--row-hover); }
+tr.detail td { background: var(--bg); font-size: 12px; }
+td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.type { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; white-space: nowrap; }
+.conf { font-size: 11px; color: var(--muted); }
+.ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--danger); }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.toolbar input, .toolbar select { width: auto; flex: 0 1 220px; }
+.toolbar .spacer { flex: 1; }
+.cred { border: 1px dashed var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+#toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 10; }
+.notice { border-left: 3px solid var(--warn); padding: 8px 12px; background: var(--chip); border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>iureTI Discovery</h1><span class="ver" id="ver"></span>
+  <nav>
+    <button data-tab="scan" class="active">Escaneo</button>
+    <button data-tab="assets">Activos</button>
+    <button data-tab="settings">Configuración</button>
+  </nav>
+</header>
+<main>
+
+<section class="tab active" id="tab-scan">
+  <div class="notice">Escanea solo redes para las que tengas <b>autorización expresa</b> del responsable de la red.</div>
+  <div class="card">
+    <h2>Nuevo escaneo</h2>
+    <label for="targets">Rangos (CIDR, rangos 10.0.0.1-50 o IPs; separados por coma o salto de línea)</label>
+    <textarea id="targets" placeholder="192.168.1.0/24"></textarea>
+    <div class="small muted" style="margin-top:6px">Redes de este equipo (clic para agregar):</div>
+    <div class="chips" id="networks"></div>
+    <div class="row" style="margin-top:14px">
+      <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px">
+        <input type="checkbox" id="use-snmp" checked style="width:auto"> Consultar SNMP
+      </label>
+      <span class="small muted" id="snmp-hint" style="flex:1 1 300px"></span>
+      <div style="flex:0 0 auto;display:flex;gap:8px">
+        <button class="btn danger" id="cancel-scan" disabled>Cancelar</button>
+        <button class="btn primary" id="start-scan">Escanear</button>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Progreso</h2>
+    <div id="scan-phase" class="muted">Sin escaneos en curso.</div>
+    <div class="progress"><div id="scan-bar"></div></div>
+    <div id="scan-detail" class="small muted"></div>
+  </div>
+  <div class="card">
+    <h2>Historial</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Inicio</th><th>Rangos</th><th>Resultado</th><th>Vivos</th><th>Nuevos</th></tr></thead>
+      <tbody id="scan-history"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-assets">
+  <div class="stats" style="margin-bottom:16px" id="stats"></div>
+  <div class="card">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Buscar IP, nombre, MAC, fabricante…">
+      <select id="f-type"><option value="">Todos los tipos</option></select>
+      <span class="spacer"></span>
+      <button class="btn danger" id="delete-sel" disabled>Olvidar seleccionados</button>
+      <button class="btn" id="export-csv" title="CSV con los encabezados de Inventario › Importar">CSV para importar</button>
+      <button class="btn" id="export-json">JSON (contrato API)</button>
+      <button class="btn primary" id="sync">Enviar a iurefficient</button>
+    </div>
+    <p class="small muted" style="margin-top:0">La sonda envía todo lo que ve; la aprobación, ligar a activos existentes o ignorar se hace en la bandeja <b>Descubiertos</b> del inventario de iurefficient.</p>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th><input type="checkbox" id="sel-all" style="width:auto"></th>
+        <th>IP</th><th>Nombre</th><th>Tipo</th><th>Fabricante / modelo</th><th>Serie</th><th>MAC</th><th>Puertos</th><th>Visto</th><th>iurefficient</th>
+      </tr></thead>
+      <tbody id="assets"></tbody>
+    </table></div>
+    <div id="empty" class="muted" style="padding:20px;text-align:center;display:none">Aún no hay activos. Lanza un escaneo.</div>
+  </div>
+</section>
+
+<section class="tab" id="tab-settings">
+  <div class="card">
+    <h2>Sonda</h2>
+    <div class="row">
+      <div><label>Identificador de la sonda</label><input id="s-probe_id" placeholder="(hostname)"></div>
+      <div><label>Sitio</label><input id="s-site" placeholder="Matriz CDMX"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>iurefficient</h2>
+    <div class="row">
+      <div><label>URL de iurefficient</label><input id="s-api_url" placeholder="https://cliente.iurefficient.com"></div>
+      <div><label>Token de sonda (iurprobe_…)</label><input id="s-api_token" type="password" autocomplete="off"></div>
+    </div>
+    <p class="small muted">El token se emite en Inventario › Ajustes y solo permite ingesta.</p>
+  </div>
+  <div class="card">
+    <h2>Credenciales SNMP (solo lectura)</h2>
+    <p class="small muted" style="margin-top:0">Se prueban en orden; la primera que responde se usa. Los secretos se guardan solo en esta sonda.</p>
+    <div id="creds"></div>
+    <button class="btn" id="add-v2">+ SNMP v2c</button>
+    <button class="btn" id="add-v3">+ SNMP v3</button>
+  </div>
+  <div class="card">
+    <h2>Escaneo</h2>
+    <div class="row">
+      <div><label>Concurrencia</label><input id="s-concurrency" type="number" min="8" max="2048"></div>
+      <div><label>Timeout TCP (s)</label><input id="s-tcp_timeout" type="number" step="0.1" min="0.2" max="10"></div>
+      <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-use_ping" style="width:auto"> Ping</label>
+      <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-resolve_dns" style="width:auto"> DNS inverso</label>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Base de fabricantes (OUI IEEE)</h2>
+    <div class="row"><span id="oui-status" class="muted" style="flex:1 1 300px"></span>
+      <button class="btn" id="oui-update" style="flex:0 0 auto">Descargar / actualizar</button></div>
+  </div>
+  <button class="btn primary" id="save-settings">Guardar configuración</button>
+</section>
+
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let TYPES = {}, assets = [], selected = new Set(), expanded = new Set(), settings = null, pollTimer = null;
+
+function toast(msg, ms = 3500) {
+  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(() => (t.style.display = "none"), ms);
+}
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const data = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
+  if (!r.ok) throw new Error(data?.detail || data || r.statusText);
+  return data;
+}
+const fmtDate = (s) => s ? new Date(s).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" }) : "";
+
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
+  document.querySelectorAll("section.tab").forEach((s) => s.classList.toggle("active", s.id === "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "assets") loadAssets();
+});
+
+// ---------- estado y escaneo ----------
+async function loadStatus() {
+  const st = await api("/api/status");
+  $("#ver").textContent = "v" + st.version;
+  if (!Object.keys(TYPES).length) {
+    TYPES = st.device_types;
+    $("#f-type").innerHTML += Object.entries(TYPES).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
+  }
+  $("#networks").innerHTML = st.networks.map((n) =>
+    `<span class="chip ${n.virtual ? "virtual" : ""}" data-net="${esc(n.network)}" title="${esc(n.interface)}${n.virtual ? " (virtual)" : ""}">${esc(n.network)} · ${esc(n.interface)}</span>`).join("");
+  document.querySelectorAll("#networks .chip").forEach((c) => c.onclick = () => {
+    const cur = $("#targets").value.trim();
+    if (!cur.split(/[\s,]+/).includes(c.dataset.net)) $("#targets").value = (cur ? cur + "\n" : "") + c.dataset.net;
+  });
+  $("#oui-status").textContent = st.oui_available ? "Base OUI disponible." : "Base OUI no descargada: el fabricante por MAC no se mostrará.";
+  renderStats(st.counts);
+  renderProgress(st.scan, st.last_summary);
+  return st;
+}
+function renderStats(c) {
+  $("#stats").innerHTML = `<div class="stat"><b>${c.total}</b>activos</div><div class="stat"><b>${c.unsynced}</b>sin enviar / con cambios</div>`;
+}
+function renderProgress(p, summary) {
+  const pct = p.total ? Math.round((100 * p.done) / p.total) : (p.running ? 0 : 100);
+  $("#scan-bar").style.width = (p.started_at ? pct : 0) + "%";
+  $("#start-scan").disabled = p.running;
+  $("#cancel-scan").disabled = !p.running;
+  if (!p.started_at) { $("#scan-phase").textContent = "Sin escaneos en curso."; $("#scan-detail").textContent = ""; return; }
+  if (p.running) {
+    $("#scan-phase").innerHTML = `Fase: <b>${esc(p.phase)}</b> — ${p.done}/${p.total}`;
+    $("#scan-detail").textContent = `Hosts vivos hasta ahora: ${p.alive}. Rangos: ${p.targets.join(", ")}`;
+  } else if (p.error) {
+    $("#scan-phase").innerHTML = `<span class="err">Error: ${esc(p.error)}</span>`;
+  } else {
+    $("#scan-phase").innerHTML = `<span class="ok">Escaneo ${esc(p.phase)}</span> (${fmtDate(p.finished_at)})`;
+    if (summary && !summary.error) $("#scan-detail").textContent = `${p.alive} hosts vivos · ${summary.assets} activos · ${summary.new} nuevos.`;
+  }
+}
+async function poll() {
+  const st = await loadStatus();
+  if (st.scan.running) { pollTimer = setTimeout(poll, 1000); }
+  else { pollTimer = null; loadHistory(); if ($("#tab-assets").classList.contains("active")) loadAssets(); }
+}
+async function loadHistory() {
+  const rows = await api("/api/scans");
+  $("#scan-history").innerHTML = rows.map((r) => `<tr><td>${fmtDate(r.started_at)}</td><td class="mono">${esc(r.targets.join(", "))}</td>
+    <td>${r.error ? `<span class="err">${esc(r.error)}</span>` : esc(r.phase)}</td><td>${r.alive ?? ""}</td><td>${r.new_assets ?? ""}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="muted">Sin escaneos.</td></tr>`;
+}
+$("#start-scan").onclick = async () => {
+  const targets = $("#targets").value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+  if (!targets.length) return toast("Indica al menos un rango.");
+  try { await api("/api/scans", { method: "POST", body: JSON.stringify({ targets, snmp: $("#use-snmp").checked }) }); if (!pollTimer) poll(); }
+  catch (e) { toast(e.message); }
+};
+$("#cancel-scan").onclick = () => api("/api/scans/cancel", { method: "POST" });
+
+// ---------- activos ----------
+async function loadAssets() {
+  assets = await api("/api/assets");
+  const ids = new Set(assets.map((a) => a.id));
+  selected = new Set([...selected].filter((i) => ids.has(i)));
+  renderAssets();
+  loadStatus();
+}
+function remoteCell(a) {
+  if (!a.remote_status) return a.synced_at ? `<span class="ok">enviado</span>` : `<span class="muted">sin enviar</span>`;
+  const labels = { matched: ["ok", "coincide"], created_pending: ["warn", "en bandeja"], ignored: ["muted", "ignorado"], rejected: ["err", "rechazado"], accepted: ["ok", "recibido"] };
+  const [cls, txt] = labels[a.remote_status] || ["", a.remote_status];
+  const stale = a.synced_at && a.synced_at < a.last_seen ? ` <span class="small muted" title="Hay datos más nuevos sin enviar">•</span>` : "";
+  return `<span class="${cls}" title="${esc(a.remote_reason)}">${txt}</span>${stale}`;
+}
+function renderAssets() {
+  const q = $("#q").value.trim().toLowerCase(), ft = $("#f-type").value;
+  const rows = assets.filter((a) => (!ft || a.device_type === ft) &&
+    (!q || [a.hostname, a.vendor, a.model, a.serial, a.os, ...a.ips, ...a.macs].join(" ").toLowerCase().includes(q)));
+  $("#empty").style.display = assets.length ? "none" : "block";
+  $("#assets").innerHTML = rows.map((a) => {
+    const row = `<tr data-id="${a.id}">
+      <td><input type="checkbox" class="sel" ${selected.has(a.id) ? "checked" : ""} style="width:auto"></td>
+      <td class="mono"><a href="#" class="toggle">${esc(a.ips[0] || "")}</a>${a.ips.length > 1 ? ` <span class="muted">+${a.ips.length - 1}</span>` : ""}</td>
+      <td>${esc(a.hostname)}</td>
+      <td><span class="type">${esc(TYPES[a.device_type] || a.device_type)}</span> <span class="conf">${Math.round(a.confidence * 100)}%</span></td>
+      <td>${esc(a.vendor)}${a.model ? `<br><span class="muted small">${esc(a.model)}</span>` : ""}</td>
+      <td class="mono">${esc(a.serial)}</td>
+      <td class="mono">${esc(a.macs[0] || "")}</td>
+      <td class="mono small">${esc(a.open_ports.join(" "))}</td>
+      <td class="small">${fmtDate(a.last_seen)}</td>
+      <td class="small">${remoteCell(a)}</td></tr>`;
+    if (!expanded.has(a.id)) return row;
+    const s = a.attributes.snmp || {};
+    return row + `<tr class="detail"><td></td><td colspan="9">
+      <div><b>Huella:</b> <span class="mono">${esc(a.fingerprint)}</span> · <b>Fuentes:</b> ${esc(a.sources.join(", "))} · <b>Vivo por:</b> ${esc((a.attributes.alive_by || []).join(", "))}</div>
+      <div><b>Clasificación:</b> ${esc(a.reasons.join("; ") || "sin indicios")}</div>
+      <div><b>IPs:</b> <span class="mono">${esc(a.ips.join(", "))}</span> · <b>MACs:</b> <span class="mono">${esc(a.macs.join(", "))}</span></div>
+      ${a.os ? `<div><b>SO / firmware:</b> ${esc(a.os)}</div>` : ""}
+      ${s.sys_descr ? `<div><b>SNMP</b> (${esc(s.credential)}): ${esc(s.sys_descr)} · <span class="mono">${esc(s.sys_object_id)}</span>${s.sys_location ? " · Ubicación: " + esc(s.sys_location) : ""}${s.sys_contact ? " · Contacto: " + esc(s.sys_contact) : ""}</div>` : ""}
+      <div class="muted">Primera vez: ${fmtDate(a.first_seen)}${a.synced_at ? " · Enviado: " + fmtDate(a.synced_at) : ""}${a.inventory_id ? " · ID inventario: " + esc(a.inventory_id) : ""}</div>
+    </td></tr>`;
+  }).join("");
+  document.querySelectorAll("#assets .toggle").forEach((el) => el.onclick = (e) => {
+    e.preventDefault(); const id = el.closest("tr").dataset.id;
+    expanded.has(id) ? expanded.delete(id) : expanded.add(id); renderAssets();
+  });
+  document.querySelectorAll("#assets .sel").forEach((el) => el.onchange = () => {
+    const id = el.closest("tr").dataset.id; el.checked ? selected.add(id) : selected.delete(id); updateSel();
+  });
+  updateSel();
+}
+function updateSel() { $("#delete-sel").disabled = !selected.size; $("#delete-sel").textContent = selected.size ? `Olvidar ${selected.size}` : "Olvidar seleccionados"; }
+$("#sel-all").onchange = (e) => { document.querySelectorAll("#assets .sel").forEach((el) => { el.checked = e.target.checked; const id = el.closest("tr").dataset.id; e.target.checked ? selected.add(id) : selected.delete(id); }); updateSel(); };
+$("#q").oninput = renderAssets;
+$("#f-type").onchange = renderAssets;
+$("#delete-sel").onclick = async () => {
+  const r = await api("/api/assets/delete", { method: "POST", body: JSON.stringify({ ids: [...selected] }) });
+  toast(`${r.deleted} activos olvidados en la sonda (no afecta a iurefficient).`); selected.clear(); loadAssets();
+};
+$("#export-csv").onclick = () => (location.href = "/api/export.csv");
+$("#export-json").onclick = () => (location.href = "/api/export.json");
+$("#sync").onclick = async () => {
+  $("#sync").disabled = true;
+  try {
+    const r = await api("/api/sync", { method: "POST" });
+    const detail = Object.entries(r.results).map(([k, v]) => `${v} ${k}`).join(", ");
+    toast(`Enviados ${r.sent} activos en ${r.batches.length} lote(s)${detail ? ": " + detail : ""}.`, 6000);
+    loadAssets();
+  } catch (e) { toast(e.message, 6000); }
+  finally { $("#sync").disabled = false; }
+};
+
+// ---------- configuración ----------
+const SIMPLE = ["probe_id", "site", "api_url", "api_token", "concurrency", "tcp_timeout"];
+const BOOLS = ["use_ping", "resolve_dns"];
+async function loadSettings() {
+  settings = await api("/api/settings");
+  SIMPLE.forEach((k) => ($("#s-" + k).value = settings[k] ?? ""));
+  BOOLS.forEach((k) => ($("#s-" + k).checked = !!settings[k]));
+  if (!$("#targets").value && settings.targets.length) $("#targets").value = settings.targets.join("\n");
+  renderCreds();
+}
+function credField(i, key, label, type = "text", opts = null) {
+  const v = settings.snmp_credentials[i][key] ?? "";
+  if (opts) return `<div><label>${label}</label><select data-i="${i}" data-k="${key}">${opts.map((o) => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select></div>`;
+  return `<div><label>${label}</label><input data-i="${i}" data-k="${key}" type="${type}" value="${esc(v)}" autocomplete="off"></div>`;
+}
+function renderCreds() {
+  const list = settings.snmp_credentials;
+  $("#creds").innerHTML = list.map((c, i) => `<div class="cred"><div class="row">
+      ${credField(i, "name", `Nombre (SNMP ${c.version})`)}
+      ${c.version === "2c" ? credField(i, "community", "Community", "password") : `
+        ${credField(i, "user", "Usuario")}
+        ${credField(i, "auth_protocol", "Autenticación", "text", ["SHA", "SHA256", "MD5"])}
+        ${credField(i, "auth_key", "Clave auth", "password")}
+        ${credField(i, "priv_protocol", "Cifrado", "text", ["AES", "AES256", "DES"])}
+        ${credField(i, "priv_key", "Clave priv", "password")}`}
+      <div style="flex:0 0 auto"><button class="btn danger" data-del="${i}">Quitar</button></div>
+    </div></div>`).join("") || `<p class="muted small">Sin credenciales: no se consultará SNMP.</p>`;
+  document.querySelectorAll("#creds [data-k]").forEach((el) => el.oninput = el.onchange = () => (list[el.dataset.i][el.dataset.k] = el.value));
+  document.querySelectorAll("#creds [data-del]").forEach((el) => el.onclick = () => { list.splice(+el.dataset.del, 1); renderCreds(); });
+  $("#snmp-hint").textContent = list.length ? `${list.length} credencial(es) SNMP configurada(s).` : "Sin credenciales SNMP (configúralas en Configuración).";
+}
+$("#add-v2").onclick = () => { settings.snmp_credentials.push({ name: "v2c-" + (settings.snmp_credentials.length + 1), version: "2c", community: "public" }); renderCreds(); };
+$("#add-v3").onclick = () => { settings.snmp_credentials.push({ name: "v3-" + (settings.snmp_credentials.length + 1), version: "3", user: "", auth_protocol: "SHA", auth_key: "", priv_protocol: "AES", priv_key: "" }); renderCreds(); };
+$("#save-settings").onclick = async () => {
+  const body = { snmp_credentials: settings.snmp_credentials };
+  SIMPLE.forEach((k) => (body[k] = $("#s-" + k).value.trim()));
+  body.concurrency = parseInt(body.concurrency, 10) || 256;
+  body.tcp_timeout = parseFloat(body.tcp_timeout) || 0.8;
+  BOOLS.forEach((k) => (body[k] = $("#s-" + k).checked));
+  try { settings = await api("/api/settings", { method: "PUT", body: JSON.stringify(body) }); renderCreds(); toast("Configuración guardada."); }
+  catch (e) { toast(e.message); }
+};
+$("#oui-update").onclick = async () => {
+  $("#oui-update").disabled = true; $("#oui-status").textContent = "Descargando…";
+  try { const r = await api("/api/oui/update", { method: "POST" }); toast(`Base OUI actualizada: ${r.entries} fabricantes.`); }
+  catch (e) { toast(e.message, 6000); }
+  finally { $("#oui-update").disabled = false; loadStatus(); }
+};
+
+loadSettings().then(poll);
+loadHistory();
+</script>
+</body>
+</html>

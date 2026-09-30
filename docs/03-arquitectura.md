@@ -4,7 +4,7 @@
 ┌──────────────── Sonda iureTI Discovery (Linux) ─────────────────┐
 │                                                                  │
 │  Interfaz web local (FastAPI + HTML/JS)  ◀── navegador           │
-│      rangos, credenciales, escaneos, revisión, envío             │
+│      rangos, credenciales, escaneos, previsualización, envío     │
 │                                                                  │
 │  Motor de descubrimiento (asyncio)                               │
 │   ├─ sweep     ARP / ICMP / TCP connect                          │
@@ -54,7 +54,7 @@ Resultado de conciliar observaciones:
 | `open_ports[]` | |
 | `sources[]` | Qué collectors lo vieron |
 | `first_seen`, `last_seen` | |
-| `status` | `pending` → `approved` / `ignored`; `synced` cuando se envió |
+| `synced_at`, `remote_status`, `inventory_id` | Último envío y respuesta de iurefficient (`matched`, `created_pending`, `ignored`, `rejected`); `inventory_id` es UUID |
 
 ## Identidad y deduplicación
 
@@ -77,8 +77,12 @@ Reglas con puntaje (se suman indicios, gana el tipo con mayor puntaje):
 - Puertos (9100/631 → impresora; 3389+445 → Windows; 8006 → Proxmox; 902 → ESXi)
 - Fabricante OUI (p.ej. Ubiquiti/Aruba → AP probable; Brother/Epson → impresora)
 
-La clasificación nunca es definitiva: el usuario la corrige en la revisión y la corrección
-se respeta en escaneos posteriores.
+La clasificación nunca es definitiva: se corrige en la bandeja de descubiertos de
+iurefficient (`device_type` es un campo propio del inventario, no una categoría). El campo
+`type_locked` queda reservado para respetar un tipo fijado por una persona.
+
+Indicios adicionales: la **puerta de enlace por omisión** de la sonda suma a router, y los
+nombres sintéticos de systemd-resolved (`_gateway`) no se usan como hostname.
 
 ## Estructura del código
 
@@ -92,7 +96,8 @@ src/iureti_discovery/
   reconcile.py     conciliación / deduplicación
   scanner.py       orquestador de un escaneo
   store.py         persistencia SQLite
-  sync.py          envío a la API de iurefficient
+  sync.py          envío a la API y CSV para Inventario › Importar
+  service.py       operaciones compartidas por CLI y web
   web/             FastAPI + UI
   cli.py           línea de comandos
 ```
