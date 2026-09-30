@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import webbrowser
 
@@ -15,9 +16,13 @@ from .sync import DEVICE_TYPE_LABELS, SyncError, build_batch, to_import_csv
 
 
 def cmd_serve(args) -> None:
+    import logging
+
     import uvicorn
 
     from .web.app import create_app
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         print(f"AVISO: la interfaz quedará expuesta en {args.host}:{args.port} sin autenticación. "
@@ -26,7 +31,79 @@ def cmd_serve(args) -> None:
     print(f"iureTI Discovery {__version__} — {url}")
     if args.open:
         webbrowser.open(url)
-    uvicorn.run(create_app(args.db), host=args.host, port=args.port, log_level="warning")
+    if args.agent:
+        print("Modo servicio: heartbeat con iurefficient y escaneos programados activos")
+    uvicorn.run(create_app(args.db, agent=args.agent), host=args.host, port=args.port, log_level="warning")
+
+
+def cmd_enroll(args) -> None:
+    from .agent import Agent
+    from .runtime import Runtime
+
+    store = Store(args.db)
+    values = {"api_url": args.url.rstrip("/"), "api_token": args.token}  # «gestionada» al recibir config
+    if args.name:
+        values["probe_id"] = args.name
+    if args.site:
+        values["site"] = args.site
+    store.update_settings(values)
+    print(f"Sonda configurada para {values['api_url']}")
+
+    async def check():
+        agent = Agent(Runtime(store))
+        await agent.heartbeat()
+        return agent.state
+
+    state = asyncio.run(check())
+    if state["connected"]:
+        print("✓ Conectada: iurefficient recibió el primer heartbeat")
+    else:
+        print(f"⚠ {state['error']}")
+        print("  La configuración quedó guardada; el servicio reintentará cada pocos minutos.")
+
+
+def cmd_status(args) -> None:
+    store = Store(args.db)
+    s = store.get_settings()
+    scans = store.list_scans(1)
+    assets = store.list_assets()
+    print(f"iureTI Discovery {__version__}")
+    print(f"  Base de datos:  {store.path}")
+    print(f"  Sonda:          {s.get('probe_id') or '(hostname)'}  sitio: {s.get('site') or '-'}")
+    print(f"  iurefficient:   {s.get('api_url') or '(no configurado)'}{'  [gestionada]' if s.get('managed') else ''}")
+    interval = int(s.get("schedule_interval_minutes") or 0)
+    sched = f"cada {interval} min" + (f" entre {s['schedule_window']}" if s.get("schedule_window") else "") if interval else "desactivada"
+    print(f"  Programación:   {sched}  rangos: {', '.join(s.get('targets') or []) or '-'}")
+    print(f"  Activos:        {len(assets)}")
+    if scans:
+        last = scans[0]
+        print(f"  Último escaneo: {last['started_at']}  {last['phase']}  vivos: {last['alive']}  nuevos: {last['new_assets']}"
+              + (f"  error: {last['error']}" if last.get("error") else ""))
+
+
+def cmd_schedule(args) -> None:
+    store = Store(args.db)
+    values = {}
+    if args.every is not None:
+        units = {"m": 1, "h": 60, "d": 1440}
+        try:
+            values["schedule_interval_minutes"] = 0 if args.every in ("0", "off") else int(args.every[:-1]) * units[args.every[-1]]
+        except (KeyError, ValueError):
+            sys.exit("Usa --every 30m, 6h, 1d u off")
+    if args.window is not None:
+        from .agent import parse_window
+        if args.window and parse_window(args.window) is None:
+            sys.exit("Ventana inválida: usa HH:MM-HH:MM")
+        values["schedule_window"] = args.window
+    if args.targets:
+        netutil.expand_targets(args.targets)
+        values["targets"] = args.targets
+    if args.auto_sync is not None:
+        values["auto_sync"] = args.auto_sync == "on"
+    if args.auto_enrich is not None:
+        values["auto_enrich"] = args.auto_enrich == "on"
+    store.update_settings(values)
+    cmd_status(args)
 
 
 def cmd_networks(args) -> None:
@@ -135,10 +212,29 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("serve", help="Inicia la interfaz web local")
-    p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--host", default=os.environ.get("IURETI_HOST", "127.0.0.1"))
+    p.add_argument("--port", type=int, default=int(os.environ.get("IURETI_PORT", "8765")))
     p.add_argument("--open", action="store_true", help="Abre el navegador")
+    p.add_argument("--agent", action="store_true", help="Modo servicio: heartbeat con iurefficient y escaneos programados")
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("enroll", help="Registra la sonda en iurefficient (URL + token de sonda)")
+    p.add_argument("--url", required=True, help="URL de iurefficient, p.ej. https://cliente.iurefficient.com")
+    p.add_argument("--token", required=True, help="Token de sonda (iurprobe_…)")
+    p.add_argument("--name", help="Identificador de la sonda (por omisión, el hostname)")
+    p.add_argument("--site", help="Sitio / sucursal")
+    p.set_defaults(func=cmd_enroll)
+
+    p = sub.add_parser("status", help="Estado de la sonda")
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("schedule", help="Escaneos programados (modo servicio)")
+    p.add_argument("--every", help="Intervalo: 30m, 6h, 1d u off")
+    p.add_argument("--window", help="Ventana horaria local HH:MM-HH:MM ('' = cualquier hora)")
+    p.add_argument("--targets", nargs="+", help="Rangos a escanear")
+    p.add_argument("--auto-sync", choices=["on", "off"], help="Enviar a iurefficient tras cada escaneo")
+    p.add_argument("--auto-enrich", choices=["on", "off"], help="Buscar en internet los productos nuevos")
+    p.set_defaults(func=cmd_schedule)
 
     p = sub.add_parser("networks", help="Muestra las redes de este equipo")
     p.set_defaults(func=cmd_networks)

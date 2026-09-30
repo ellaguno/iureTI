@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -12,9 +13,10 @@ from pydantic import BaseModel
 import re
 
 from .. import __version__, enrich, netutil, service
-from ..models import DEVICE_TYPES, utcnow
+from ..agent import Agent, parse_window, version_tuple
+from ..models import DEVICE_TYPES
 from ..oui import OuiDatabase
-from ..scanner import ScanProgress, Scanner
+from ..runtime import Busy, Runtime
 from ..store import Store
 from ..sync import DEVICE_TYPE_LABELS, SyncError, build_batch, to_import_csv
 
@@ -59,13 +61,19 @@ def _unmask_settings(new: dict, current: dict) -> dict:
     return new
 
 
-def create_app(db_path: str | None = None) -> FastAPI:
-    app = FastAPI(title="iureTI Discovery", version=__version__)
+def create_app(db_path: str | None = None, agent: bool = False) -> FastAPI:
     store = Store(db_path)
-    oui = OuiDatabase()
-    progress = ScanProgress()
-    state: dict = {"scanner": None, "task": None, "summary": None,
-                   "enrich": {"running": False, "total": 0, "done": 0, "errors": [], "cached": 0}}
+    rt = Runtime(store, OuiDatabase())
+    probe_agent = Agent(rt) if agent else None
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        task = asyncio.create_task(probe_agent.run()) if probe_agent else None
+        yield
+        if task:
+            task.cancel()
+
+    app = FastAPI(title="iureTI Discovery", version=__version__, lifespan=lifespan)
 
     @app.get("/", include_in_schema=False)
     def index():
@@ -73,20 +81,28 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
     @app.get("/api/status")
     def status():
-        assets = store.list_assets()
-        counts = {"total": len(assets), "unsynced": sum(1 for a in assets if not a.synced_at or a.synced_at < a.last_seen)}
+        settings = store.get_settings()
+        agent_state = dict(probe_agent.state) if probe_agent else None
+        if agent_state:
+            latest = agent_state.get("latest_version") or ""
+            agent_state["update_available"] = bool(latest) and version_tuple(latest) > version_tuple(__version__)
         return {
             "version": __version__,
-            "oui_available": oui.available,
+            "oui_available": rt.oui.available,
             "networks": [n.__dict__ for n in sorted(netutil.local_networks(), key=lambda n: n.virtual)],
-            "scan": progress.to_dict(),
-            "last_summary": state["summary"],
-            "counts": counts,
+            "scan": rt.progress.to_dict(),
+            "last_summary": rt.summary,
+            "counts": rt.counts(),
             "device_types": {t: DEVICE_TYPE_LABELS[t] for t in DEVICE_TYPES},
-            "sync_configured": bool(store.get_settings().get("api_url")),
-            "enrich_enabled": bool(store.get_settings().get("enrich_enabled")),
-            "enrich": state["enrich"],
+            "sync_configured": bool(settings.get("api_url")),
+            "enrich_enabled": bool(settings.get("enrich_enabled")),
+            "enrich": rt.enrich_job,
             "openrouter_models": enrich.OPENROUTER_MODELS,
+            "managed": bool(settings.get("managed")),
+            "schedule": {"interval_minutes": settings.get("schedule_interval_minutes", 0),
+                         "window": settings.get("schedule_window", "")},
+            "agent": agent_state,
+            "last_sync": rt.last_sync,
         }
 
     @app.get("/api/settings")
@@ -99,6 +115,8 @@ def create_app(db_path: str | None = None) -> FastAPI:
             raise HTTPException(400, "Proveedor inválido (openrouter o anthropic)")
         if values.get("openrouter_web_engine", "exa") not in enrich.WEB_ENGINES:
             raise HTTPException(400, "Motor de búsqueda inválido (exa, native o auto)")
+        if values.get("schedule_window") and parse_window(values["schedule_window"]) is None:
+            raise HTTPException(400, "Ventana inválida: usa HH:MM-HH:MM (p.ej. 01:00-05:00)")
         for cred in values.get("snmp_credentials", []):
             if not cred.get("name"):
                 raise HTTPException(400, "Cada credencial SNMP necesita un nombre")
@@ -108,32 +126,18 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
     @app.post("/api/scans")
     async def start_scan(req: ScanRequest):
-        if progress.running:
-            raise HTTPException(409, "Ya hay un escaneo en curso")
         try:
-            netutil.expand_targets(req.targets)
+            rt.start_scan(req.targets, use_snmp=req.snmp)
+        except Busy as exc:
+            raise HTTPException(409, str(exc))
         except ValueError as exc:
             raise HTTPException(400, str(exc))
-        if not req.targets:
-            raise HTTPException(400, "Indica al menos un rango")
-        scanner: Scanner = service.make_scanner(store, req.targets, progress=progress, oui=oui, use_snmp=req.snmp)
-        store.update_settings({"targets": req.targets})
-        progress.started_at, progress.finished_at, progress.phase = utcnow(), "", "iniciando"
-
-        async def job():
-            try:
-                state["summary"] = await service.run_scan(store, scanner)
-            except Exception as exc:  # el error queda en progress.error
-                state["summary"] = {"error": str(exc)}
-
-        state["scanner"], state["task"] = scanner, asyncio.create_task(job())
-        return progress.to_dict()
+        return rt.progress.to_dict()
 
     @app.post("/api/scans/cancel")
     def cancel_scan():
-        if state["scanner"] and progress.running:
-            state["scanner"].cancel()
-        return progress.to_dict()
+        rt.cancel_scan()
+        return rt.progress.to_dict()
 
     @app.get("/api/scans")
     def list_scans():
@@ -158,30 +162,13 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
     @app.post("/api/enrich")
     async def enrich_bulk(only_missing: bool = True):
-        job = state["enrich"]
-        if job["running"]:
-            raise HTTPException(409, "Ya hay una búsqueda en curso")
-        if not store.get_settings().get("enrich_enabled"):
-            raise HTTPException(400, "La búsqueda en internet está desactivada (Configuración)")
-        ids = service.enrich_candidates(store, only_missing)
-        job.update(running=True, total=len(ids), done=0, errors=[], cached=0)
-
-        async def run():
-            try:
-                for asset_id in ids:
-                    try:
-                        r = await asyncio.to_thread(service.enrich_asset, store, asset_id)
-                        job["cached"] += r["cached"]
-                    except enrich.EnrichError as exc:
-                        job["errors"].append(str(exc))
-                        if any(w in str(exc) for w in ("Clave", "clave", "desactivada", "créditos")):
-                            break  # no tiene caso seguir
-                    job["done"] += 1
-            finally:
-                job["running"] = False
-
-        asyncio.create_task(run())
-        return job
+        try:
+            rt.start_enrich(only_missing)
+        except Busy as exc:
+            raise HTTPException(409, str(exc))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return rt.enrich_job
 
     @app.get("/api/images/{filename}", include_in_schema=False)
     def image(filename: str):
@@ -209,14 +196,14 @@ def create_app(db_path: str | None = None) -> FastAPI:
     @app.post("/api/sync")
     async def sync(only_changed: bool = False):
         try:
-            return await asyncio.to_thread(service.sync_all, store, only_changed)
+            return await rt.sync(only_changed)
         except SyncError as exc:
             raise HTTPException(502, str(exc))
 
     @app.post("/api/oui/update")
     async def update_oui():
         try:
-            count = await asyncio.to_thread(oui.update)
+            count = await asyncio.to_thread(rt.oui.update)
         except Exception as exc:
             raise HTTPException(502, f"No se pudo descargar la base OUI: {exc}")
         return {"entries": count}

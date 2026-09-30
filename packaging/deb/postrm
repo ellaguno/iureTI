@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+if [ "$1" = purge ]; then
+    # Borra inventario local, configuración (incluye secretos) y caché
+    rm -rf /var/lib/iureti /var/cache/iureti
+    getent passwd iureti >/dev/null && deluser --system iureti >/dev/null 2>&1 || true
+    getent group iureti >/dev/null && delgroup --system iureti >/dev/null 2>&1 || true
+fi
+if [ -d /run/systemd/system ]; then systemctl daemon-reload || true; fi
+exit 0

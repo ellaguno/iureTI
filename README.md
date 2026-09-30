@@ -17,7 +17,19 @@ access points y más.
 
 > ⚠️ Usa esta herramienta **solo en redes donde tengas autorización** expresa para hacerlo.
 
-## Inicio rápido
+## Instalar una sonda (servicio)
+
+Debian / Ubuntu / Raspberry Pi OS, amd64 o arm64:
+
+```bash
+curl -fsSL https://github.com/ellaguno/iureTI/releases/latest/download/install.sh | sudo sh -s -- \
+  --url https://cliente.iurefficient.com --token iurprobe_xxxxx --site "Matriz"
+```
+
+O con Docker (red del host): `docker run -d --name iureti --network host --restart unless-stopped -v iureti-data:/data ghcr.io/ellaguno/iureti:latest`.
+Detalles en [docs/07](docs/07-distribucion.md).
+
+## Inicio rápido (desarrollo)
 
 Requiere Linux, Python 3.11+ y [uv](https://docs.astral.sh/uv/). No requiere root.
 

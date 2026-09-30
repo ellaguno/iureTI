@@ -1,0 +1,39 @@
+[Unit]
+Description=iureTI Discovery - sonda de inventario de TI
+Documentation=https://github.com/ellaguno/iureTI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iureti
+Group=iureti
+Environment=IURETI_DB=/var/lib/iureti/iureti.db
+Environment=IURETI_CACHE_DIR=/var/cache/iureti
+Environment=IURETI_INSTALL=deb
+Environment=IURETI_HOST=127.0.0.1
+Environment=IURETI_PORT=8765
+# Ajustes locales (p. ej. IURETI_HOST, IURETI_PORT, OPENROUTER_API_KEY)
+EnvironmentFile=-/etc/default/iureti-discovery
+ExecStart=/opt/iureti/venv/bin/iureti-discovery serve --agent
+Restart=on-failure
+RestartSec=10
+
+StateDirectory=iureti
+StateDirectoryMode=0750
+CacheDirectory=iureti
+# ping necesita CAP_NET_RAW en algunas distribuciones; es el único privilegio que recibe
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

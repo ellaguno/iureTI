@@ -34,6 +34,18 @@ Estimado: 4–6 semanas, 1 desarrollador.
 - [ ] Probar la identificación por internet con claves reales (solo probado con clientes simulados)
 - [ ] Claves de API en keyring en vez de la BD local
 
+## v0.3 — distribución y modo servicio (2026-09-30)
+- [x] Contrato de gestión de sondas: heartbeat, configuración remota, órdenes (`docs/04`)
+- [x] Agente: heartbeat, configuración de iurefficient, órdenes (`scan_now`, `sync_now`, `enrich_now`,
+      `forget_assets`), escaneos programados con ventana horaria, envío y búsqueda automáticos
+- [x] CLI `enroll`, `status`, `schedule`; `serve --agent`
+- [x] `.deb` con Python propio + systemd endurecido (amd64/arm64), probado en Ubuntu 22.04/24.04 y Debian 12
+- [x] Imagen Docker multi‑arquitectura; `install.sh` con verificación SHA‑256
+- [x] GitHub Actions: CI y release por tag
+- [ ] Primer release publicado (`v0.3.0`) y prueba del runner arm64
+- [ ] Del lado de iurefficient: pantalla Sondas + endpoint de heartbeat
+- [ ] Appliance Raspberry Pi / OVA; repositorio apt firmado
+
 ## v2 — +4–6 semanas
 - **GLPI-Agent (adelantado de v3)**: inventario de laptops y de software instalado; el
   software se cruza con los asientos de licencia del inventario de iurefficient
@@ -43,8 +55,7 @@ Estimado: 4–6 semanas, 1 desarrollador.
 - AD / LDAP
 - Escaneos programados
 - Autenticación y TLS en la UI; secretos en keyring
-- Paquetes .deb / AppImage / imagen Docker
-- Varias sondas por cliente
+- Varias sondas por cliente (la sonda ya lo soporta; falta la pantalla en iurefficient)
 
 ## v3 — +6–8 semanas
 - WinRM / SSH: hardware y software instalado

@@ -1,6 +1,6 @@
 [project]
 name = "iureti-discovery"
-version = "0.2.1"
+version = "0.3.0"
 description = "Sonda de autodescubrimiento de recursos de TI para el inventario de iurefficient"
 readme = "README.md"
 requires-python = ">=3.11"

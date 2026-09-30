@@ -1,0 +1,11 @@
+# /etc/default/iureti-discovery — ajustes del servicio iureti-discovery
+# Después de editar: sudo systemctl restart iureti-discovery
+
+# La interfaz web escucha solo en este equipo. Para usarla desde otro equipo, mejor un túnel:
+#   ssh -L 8765:127.0.0.1:8765 usuario@este-equipo   →   http://127.0.0.1:8765/
+#IURETI_HOST=127.0.0.1
+#IURETI_PORT=8765
+
+# Claves de búsqueda en internet (alternativa a capturarlas en la interfaz)
+#OPENROUTER_API_KEY=
+#ANTHROPIC_API_KEY=

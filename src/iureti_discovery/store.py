@@ -37,6 +37,7 @@ DEFAULT_SETTINGS = {
     "site": "",
     "targets": [],
     "snmp_credentials": [],  # dicts de SnmpCredential (incluye secretos: la BD tiene permisos 600)
+    "snmp_enabled": True,  # consultar SNMP en escaneos programados / remotos
     "api_url": "",
     "api_token": "",
     "concurrency": 256,
@@ -55,10 +56,20 @@ DEFAULT_SETTINGS = {
     "openrouter_web_engine": "exa",  # exa | native | auto
     "anthropic_api_key": "",  # vacío = ANTHROPIC_API_KEY o perfil de `ant auth login`
     "anthropic_model": "claude-opus-5-5",
+    # Operación continua (servicio): programación local o recibida de iurefficient
+    "managed": False,  # True tras `enroll`: la configuración la manda iurefficient
+    "heartbeat_seconds": 300,
+    "config_version": "",
+    "schedule_interval_minutes": 0,  # 0 = sin escaneos programados
+    "schedule_window": "",  # "01:00-05:00" hora local; "" = cualquier hora
+    "auto_sync": True,  # enviar a iurefficient después de cada escaneo programado
+    "auto_enrich": False,  # buscar en internet los productos nuevos después de cada escaneo
 }
 
 
 def default_db_path() -> Path:
+    if os.environ.get("IURETI_DB"):  # el servicio usa /var/lib/iureti/iureti.db
+        return Path(os.environ["IURETI_DB"])
     base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
     return Path(base) / "iureti-discovery" / "iureti.db"
 

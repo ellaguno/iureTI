@@ -1,0 +1,15 @@
+#!/bin/sh
+# /usr/bin/iureti-discovery — usa la base del servicio y corre como el usuario iureti
+export IURETI_DB="${IURETI_DB:-/var/lib/iureti/iureti.db}"
+export IURETI_CACHE_DIR="${IURETI_CACHE_DIR:-/var/cache/iureti}"
+export IURETI_INSTALL="${IURETI_INSTALL:-deb}"
+BIN=/opt/iureti/venv/bin/iureti-discovery
+
+if [ "$(id -u)" = 0 ]; then
+    exec runuser -u iureti -- "$BIN" "$@"
+fi
+if [ "$(id -un)" != iureti ] && [ -e "$IURETI_DB" ] && [ ! -w "$IURETI_DB" ]; then
+    echo "iureti-discovery: la base del servicio es del usuario iureti; usa: sudo iureti-discovery $*" >&2
+    exit 1
+fi
+exec "$BIN" "$@"

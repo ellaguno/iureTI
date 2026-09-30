@@ -11,3 +11,4 @@ la red o en un servidor) y alimenta el módulo de **Inventario de iurefficient**
 | [04 — Contrato de la API de ingesta](04-api-ingesta.md) | Formato con el que la sonda envía activos a iurefficient |
 | [05 — Seguridad y operación](05-seguridad.md) | Autorización, credenciales, huella en la red, relación con IDS/EDR |
 | [06 — Roadmap](06-roadmap.md) | Fases MVP → v2 → v3 y estado actual |
+| [07 — Distribución e instalación](07-distribucion.md) | `.deb` + systemd, Docker, `install.sh`, dónde va la sonda, publicar versiones |

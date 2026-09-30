@@ -15,8 +15,11 @@ IEEE_OUI_URL = "https://standards-oui.ieee.org/oui/oui.csv"
 
 
 def cache_dir() -> Path:
-    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
-    path = Path(base) / "iureti-discovery"
+    if os.environ.get("IURETI_CACHE_DIR"):  # el servicio usa /var/cache/iureti
+        path = Path(os.environ["IURETI_CACHE_DIR"])
+    else:
+        base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+        path = Path(base) / "iureti-discovery"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

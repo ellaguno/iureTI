@@ -82,6 +82,78 @@ Envía un lote de activos descubiertos. Idempotente por `batch_id`.
 - `created_pending` — nuevo; queda **pendiente de aprobación** en iurefficient
 - `rejected` — con `reason`
 
+## Gestión de sondas: `POST /api/plugins/inventory/probes/heartbeat`
+
+La sonda **solo hace conexiones salientes** (HTTPS a iurefficient); nunca abre puertos. Cada
+`heartbeat_seconds` (300 por omisión) reporta su estado y recibe configuración y órdenes. Mismo token de
+sonda que la ingesta. El primer heartbeat de un token registra la sonda («conectada»).
+
+### Petición
+
+```json
+{
+  "probe": {
+    "id": "sonda-matriz-01",
+    "version": "0.3.0",
+    "site": "Matriz CDMX",
+    "hostname": "srv-inventario",
+    "os": "Ubuntu 24.04.5 LTS",
+    "arch": "x86_64",
+    "install": "deb"
+  },
+  "status": {
+    "state": "idle",
+    "assets": 214,
+    "unsynced": 3,
+    "last_scan": {"started_at": "…", "finished_at": "…", "targets": ["10.0.0.0/24"],
+                  "alive": 180, "new_assets": 2, "error": ""},
+    "last_sync": {"at": "…", "sent": 214, "error": ""}
+  },
+  "networks": [{"interface": "eth0", "network": "10.0.0.0/24"}],
+  "capabilities": ["sweep", "ports", "oui", "snmp", "mdns", "ssdp", "http", "netbios", "enrich"],
+  "config_version": "c-2026-09-30-3",
+  "acks": [{"id": "cmd-17", "status": "done", "detail": "180 hosts vivos"}]
+}
+```
+
+- `networks` permite a iurefficient **sugerir rangos** al administrador.
+- `acks` confirma las órdenes recibidas en heartbeats anteriores (`done` | `failed` | `ignored`).
+
+### Respuesta `200 OK`
+
+```json
+{
+  "config_version": "c-2026-09-30-3",
+  "config": {
+    "targets": ["10.0.0.0/24", "10.0.10.0/24"],
+    "schedule": {"interval_minutes": 1440, "window": "01:00-05:00"},
+    "collectors": {"snmp": true, "mdns": true, "ssdp": true, "http": true, "netbios": true, "ping": true, "dns": true},
+    "concurrency": 256,
+    "tcp_timeout": 0.8,
+    "auto_sync": true,
+    "auto_enrich": false,
+    "heartbeat_seconds": 300
+  },
+  "commands": [{"id": "cmd-18", "type": "scan_now", "args": {"targets": ["10.0.0.0/24"]}}],
+  "latest_version": "0.3.1"
+}
+```
+
+- `config` es `null` (o se omite) si `config_version` no cambió; la sonda conserva la que tiene.
+- Todos los campos de `config` son opcionales; lo que no venga no cambia.
+- `schedule.window` es hora **local de la sonda**, `""` = cualquier hora; `interval_minutes: 0` = sin
+  escaneos programados.
+- Órdenes (`commands[].type`): `scan_now` (con `args.targets` opcional), `sync_now`, `enrich_now`,
+  `forget_assets` (`args.ids`). Las desconocidas se confirman como `ignored`.
+- `latest_version`: si es mayor que la instalada, la interfaz local avisa (la actualización la hace el
+  sistema de paquetes o `install.sh --upgrade`; ver [07](07-distribucion.md)).
+
+**Secretos**: las credenciales SNMP y las claves de IA **no** viajan en `config`; se capturan en la
+sonda (interfaz local o CLI). iurefficient solo sabe qué recolectores están activos.
+
+**Compatibilidad**: si el endpoint responde `404` (iurefficient sin el tramo de sondas), la sonda sigue
+en modo local con su programación propia y reintenta en el siguiente ciclo.
+
 ## Reglas del lado de iurefficient
 
 1. **Coincidencia** con activos existentes usando la misma prioridad que la sonda:

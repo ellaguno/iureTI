@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+    getent group iureti >/dev/null || addgroup --system iureti
+    getent passwd iureti >/dev/null || adduser --system --ingroup iureti --home /var/lib/iureti \
+        --no-create-home --shell /usr/sbin/nologin --gecos "iureTI Discovery" iureti
+    install -d -o iureti -g iureti -m 0750 /var/lib/iureti
+    install -d -o iureti -g iureti -m 0755 /var/cache/iureti
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+        systemctl enable iureti-discovery.service >/dev/null 2>&1 || true
+        systemctl restart iureti-discovery.service || true
+    fi
+fi
+exit 0
