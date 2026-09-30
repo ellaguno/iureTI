@@ -83,6 +83,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: out
+          pattern: deb-*  # no el registro de build de Docker
           merge-multiple: true
       - name: Publicar release
         env:
