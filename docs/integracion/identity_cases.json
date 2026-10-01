@@ -1,5 +1,5 @@
 {
- "_origen": "Generado con las funciones de iureTI 0.4.0 (reconcile.py / netutil.py / models.py) el 2026-09-30 por scripts/export_integration_files.py. Contrato de paridad: el inventario debe dar lo mismo.",
+ "_origen": "Generado con las funciones de iureTI 0.4.1 (reconcile.py / netutil.py / models.py) el 2026-09-30 por scripts/export_integration_files.py. Contrato de paridad: el inventario debe dar lo mismo.",
  "device_types": [
   "workstation",
   "laptop",

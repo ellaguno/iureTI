@@ -216,7 +216,12 @@ def cmd_enrich(args) -> None:
 
 
 def cmd_oui_update(args) -> None:
-    print(f"Base OUI actualizada: {OuiDatabase().update()} fabricantes")
+    from .oui import OuiUpdateError
+
+    try:
+        print(f"Base OUI actualizada: {OuiDatabase().update()} fabricantes")
+    except OuiUpdateError as exc:
+        sys.exit(str(exc))
 
 
 def main(argv: list[str] | None = None) -> None:

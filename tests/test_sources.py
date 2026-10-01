@@ -256,3 +256,36 @@ def test_enrich_asset_via_openrouter(tmp_path, monkeypatch):
     e = r["asset"]["attributes"]["enrichment"]
     assert e["provider"] == "openrouter" and e["model_requested"] == "openai/gpt-6-luna" and e["cost_usd"] == 0.0123
     assert r["asset"]["model"] == "HG8145X6"
+
+
+# --- base OUI: reintentos y error claro (fallo transitorio del IEEE) ------------
+def test_oui_update_retries_then_succeeds(tmp_path, monkeypatch):
+    from iureti_discovery import oui
+    monkeypatch.setattr(oui.time, "sleep", lambda s: None)
+    calls = []
+    csv_ok = 'Registry,Assignment,Organization Name,Organization Address\nMA-L,001A2B,"Acme",US\n'
+
+    def flaky(url, timeout):
+        calls.append(1)
+        if len(calls) < 2:
+            raise OSError(104, "Connection reset by peer")
+        return csv_ok
+
+    monkeypatch.setattr(oui, "_download", flaky)
+    db = oui.OuiDatabase(tmp_path / "oui.csv")
+    assert db.update() == 1 and len(calls) == 2 and db.available
+
+
+def test_oui_update_raises_clear_error(tmp_path, monkeypatch):
+    import urllib.error
+    from iureti_discovery import oui
+    monkeypatch.setattr(oui.time, "sleep", lambda s: None)
+
+    def boom(url, timeout):
+        raise urllib.error.URLError("boom")
+
+    monkeypatch.setattr(oui, "_download", boom)
+    db = oui.OuiDatabase(tmp_path / "oui.csv")
+    with pytest.raises(oui.OuiUpdateError, match="IEEE"):
+        db.update(retries=2)
+    assert not db.available  # no deja un archivo a medias

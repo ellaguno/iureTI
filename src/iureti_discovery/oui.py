@@ -5,13 +5,31 @@ from __future__ import annotations
 import csv
 import io
 import os
+import ssl
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
-
-import httpx
 
 from .netutil import is_locally_administered, normalize_mac
 
 IEEE_OUI_URL = "https://standards-oui.ieee.org/oui/oui.csv"
+
+
+MAX_OUI_BYTES = 32 * 1024 * 1024
+
+
+class OuiUpdateError(RuntimeError):
+    """No se pudo descargar la base de fabricantes (red/servidor del IEEE)."""
+
+
+def _download(url: str, timeout: float) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "iureti-discovery"})
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:  # noqa: S310 (URL fija, https)
+        if resp.status != 200:
+            raise urllib.error.URLError(f"HTTP {resp.status}")
+        return resp.read(MAX_OUI_BYTES).decode("utf-8", errors="replace")
 
 
 def cache_dir() -> Path:
@@ -44,17 +62,30 @@ class OuiDatabase:
     def available(self) -> bool:
         return self.path.exists()
 
-    def update(self, timeout: float = 60.0) -> int:
-        resp = httpx.get(IEEE_OUI_URL, timeout=timeout, follow_redirects=True, headers={"User-Agent": "iureti-discovery"})
-        resp.raise_for_status()
-        table = parse_oui_csv(resp.text)
-        if not table:
-            raise RuntimeError("El archivo OUI descargado no contiene registros")
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(resp.text, encoding="utf-8")
-        tmp.replace(self.path)
-        self._table = table
-        return len(table)
+    def update(self, timeout: float = 60.0, retries: int = 3) -> int:
+        # Se usa urllib (no httpx): el WAF del IEEE corta el ClientHello de httpx pero acepta el de
+        # la biblioteca estándar. Aun así el servidor es inestable, así que se reintenta.
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            try:
+                text = _download(IEEE_OUI_URL, timeout)
+                table = parse_oui_csv(text)
+                if not table:
+                    raise ValueError("El archivo OUI descargado no contiene registros")
+                tmp = self.path.with_suffix(".tmp")
+                tmp.write_text(text, encoding="utf-8")
+                tmp.replace(self.path)
+                self._table = table
+                return len(table)
+            except (urllib.error.URLError, OSError, ValueError) as exc:
+                last_exc = exc
+                if attempt < retries - 1:
+                    time.sleep(2 * (attempt + 1))
+        raise OuiUpdateError(
+            "No se pudo descargar la base de fabricantes del IEEE "
+            f"(standards-oui.ieee.org): {last_exc}. La sonda funciona sin ella (no mostrará el "
+            "fabricante por MAC); reintenta más tarde con «iureti-discovery oui-update»."
+        ) from last_exc
 
     def _load(self) -> dict[str, str]:
         if self._table is None:
