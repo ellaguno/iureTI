@@ -77,7 +77,7 @@ cuatro frentes; cada defensa tiene pruebas que reproducen el ataque (`tests/test
   que salieron de este repositorio y de este workflow.
   ```bash
   gh attestation verify iureti-discovery_0.4.0_amd64.deb --repo ellaguno/iureTI
-  gh attestation verify oci://ghcr.io/ellaguno/iureti:0.4.0 --repo ellaguno/iureTI
+  gh attestation verify oci://ghcr.io/ellaguno/iureti:v0.4.0 --repo ellaguno/iureTI
   ```
 - `install.sh` verifica el SHA-256 del `.deb` antes de instalarlo.
 
