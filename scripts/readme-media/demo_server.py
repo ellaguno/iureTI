@@ -173,6 +173,8 @@ DEVICES = [
      WIN_WS, {"netbios": {"name": "PC-CONTAB-02", "group": "RUIZASOC"}, "ttl": 128, "os_family": "windows"}, 25),
     ("192.168.50.104", "pc-direccion", "b8:ca:3a:5f:41:c8", "Dell Inc.", "", "", "",
      WIN_WS, {"netbios": {"name": "PC-DIRECCION", "group": "RUIZASOC"}, "ttl": 128, "os_family": "windows"}, 25),
+    ("192.168.50.121", "lap-mlopez", "54:e1:ad:3d:7a:19", "LCFC(HeFei) Electronics Technology co., ltd", "", "", "",
+     WIN_WS, {"netbios": {"name": "LAP-MLOPEZ", "group": "RUIZASOC"}, "ttl": 128, "os_family": "windows"}, 9),
     ("192.168.50.120", "lap-atorres", "f0:18:98:6c:02:d5", "Apple, Inc.", "MacBook Pro", "", "",
      [22, 5900], {"mdns": {"host": "lap-atorres.local", "services": ["_ssh._tcp", "_rfb._tcp", "_companion-link._tcp"],
                            "names": ["lap-atorres"], "txt": {"model": "MacBookPro18,3", "type": "laptop"}},

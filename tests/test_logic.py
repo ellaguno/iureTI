@@ -56,7 +56,7 @@ def _snmp_asset(descr, oid="", model=""):
         (Asset(open_ports=[22, 5432]), "server"),
         (Asset(open_ports=[80, 443, 9100]), "printer"),
         (Asset(open_ports=[22, 8006]), "hypervisor"),
-        (Asset(hostname="lap-jperez.corp.local", open_ports=[135, 445]), "workstation"),
+        (Asset(hostname="lap-jperez.corp.local", open_ports=[135, 445]), "laptop"),
         (Asset(), "unknown"),
     ],
 )
@@ -64,6 +64,41 @@ def test_classify(asset, expected):
     kind, confidence, _ = classify(asset)
     assert kind == expected
     assert 0 <= confidence <= 1
+
+
+WIN = {"os_family": "windows"}
+
+
+@pytest.mark.parametrize(
+    "asset,expected",
+    [
+        # Portátil Windows por el nombre (NetBIOS/DNS): pesa más que los puertos y el TTL de Windows
+        (Asset(hostname="LAPTOP-8H2KQ1", open_ports=[135, 139, 445, 3389], os="Microsoft Windows 11", attributes=WIN),
+         "laptop"),
+        (Asset(hostname="ventas-nb03", open_ports=[135, 445], attributes=WIN), "laptop"),
+        # …o por el modelo (SNMP, UPnP, mDNS)
+        (Asset(model="Latitude 7440", open_ports=[135, 445, 3389], attributes=WIN), "laptop"),
+        (Asset(open_ports=[135, 445], attributes={**WIN, "snmp": {"sys_descr": "HP EliteBook 840 G9 Notebook PC"}}),
+         "laptop"),
+        (Asset(open_ports=[135, 445], attributes={**WIN, "upnp": {"modelName": "Surface Laptop 5"}}), "laptop"),
+        # Escritorios siguen siendo escritorio; «lap» dentro de otra palabra no cuenta
+        (Asset(hostname="DESKTOP-7F3K2Q", open_ports=[135, 139, 445, 3389], os="Microsoft Windows 10", attributes=WIN),
+         "workstation"),
+        (Asset(hostname="overlap-pc", open_ports=[135, 445], attributes=WIN), "workstation"),
+        (Asset(model="Yoga AIO 7", open_ports=[135, 445], attributes=WIN), "workstation"),
+        # «Latitude» o «Notebook» en un título web no es un modelo
+        (Asset(open_ports=[135, 445], attributes={**WIN, "http": {"title": "Jupyter Notebook"}}), "workstation"),
+        # Servidores con señales fuertes no se vuelven portátiles por un nombre o modelo parecido
+        (Asset(hostname="nb-legacy-dc", open_ports=[53, 88, 135, 389, 445, 3268], os="Microsoft Windows Server 2019"),
+         "server"),
+        (Asset(model="ThinkPad P1", open_ports=[22, 5432, 3306]), "server"),
+    ],
+)
+def test_classify_laptop_vs_desktop(asset, expected):
+    kind, _, reasons = classify(asset)
+    assert kind == expected
+    if expected == "laptop":
+        assert any("portátil" in r for r in reasons)
 
 
 def test_reconcile_merges_by_mac_across_ip_change():

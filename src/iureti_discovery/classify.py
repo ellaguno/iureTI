@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from .mdns import hint_for, txt_value
+from .mdns import MODEL_TXT_KEYS, hint_for, txt_value
 from .models import DEVICE_TYPES, Asset
 from .netutil import is_locally_administered
 
@@ -94,12 +94,34 @@ HOSTNAME_HINTS: list[tuple[str, str, int]] = [
     (r"^(rt|rtr|router|gw)[-_\d]", "router", 2),
     (r"^(srv|svr|server|dc\d|sql|esx|pve|hv)", "server", 3),
     (r"^(prn|print|imp)[-_\d]", "printer", 3),
-    (r"(lap|laptop|nb|notebook|ltp)[-_\d]|^(lap|lt|nb)", "laptop", 3),
+    # Solo como palabra del nombre (lap-…, …-nb, lt07, LAPTOP-…): «lap» dentro de otra palabra no cuenta
+    (r"(^|[-_])(lap|lt|ltp|nb)([-_\d]|$)|laptop|notebook|portatil", "laptop", 3),
     (r"^(pc|ws|desk|dsk|wks)[-_\d]", "workstation", 3),
     (r"^(ups)[-_\d]", "ups", 3),
     (r"^(nas)[-_\d]", "nas", 3),
     (r"^(cam|ipcam)[-_\d]", "camera", 3),
 ]
+
+
+# Líneas de portátiles; se buscan solo en campos de modelo (no en títulos web: «Latitude», «Notebook» de Jupyter…)
+LAPTOP_MODELS = re.compile(
+    r"\b(thinkpad|thinkbook|latitude|elitebook|probook|zbook|zenbook|vivobook|ideapad|chromebook|macbook\w*|travelmate|"
+    r"surface (laptop|book)|xps 1[3-7]|inspiron 1[3-7]|yoga|spectre|(envy|pavilion) x360|notebook|laptop|port[aá]til)\b")
+ALL_IN_ONE = re.compile(r"\b(aio|all-in-one|todo en uno)\b")
+
+
+def laptop_model(asset: Asset) -> str:
+    """Modelo que delata un portátil (SNMP, UPnP, mDNS o candidato HTTP), o ''."""
+    snmp = asset.attributes.get("snmp") or {}
+    upnp = asset.attributes.get("upnp") or {}
+    http = asset.attributes.get("http") or {}
+    fields = [asset.model, snmp.get("sys_descr", ""), upnp.get("modelName", ""), upnp.get("modelDescription", ""),
+              upnp.get("friendlyName", ""), txt_value(asset.attributes.get("mdns") or {}, *MODEL_TXT_KEYS),
+              *http.get("model_candidates", [])]
+    for field in fields:
+        if field and (m := LAPTOP_MODELS.search(field.lower())) and not ALL_IN_ONE.search(field.lower()):
+            return field.strip() if len(field) <= 60 else m.group(0)
+    return ""
 
 
 def enterprise_number(sys_object_id: str) -> int | None:
@@ -257,8 +279,19 @@ def classify(asset: Asset) -> tuple[str, float, list[str]]:
             scores[kind] += weight
             reasons.append(f"nombre '{hostname}'")
 
+    if model := laptop_model(asset):
+        scores["laptop"] += 3
+        reasons.append(f"modelo de portátil ({model})")
+
     port_scores(set(asset.open_ports), scores, reasons)
     local_source_scores(asset, scores, reasons)
+
+    # Puertos de Windows, TTL y SO dicen «equipo de usuario», no su forma: con indicios de portátil, ese puntaje es
+    # de portátil. No aplica si el chasis DMI o el propio equipo (mDNS) ya dicen escritorio; servidores no se tocan.
+    announced = txt_value(asset.attributes.get("mdns") or {}, "type").lower()
+    if scores.get("laptop") and scores.get("workstation") and not asset.attributes.get("chassis") and announced != "desktop":
+        scores["laptop"] += scores.pop("workstation")
+        reasons.append("indicios de portátil: equipo de usuario portátil, no de escritorio")
 
     if asset.attributes.get("is_gateway"):
         # Suele ser router o firewall; si ya hay indicios de firewall, se respetan
