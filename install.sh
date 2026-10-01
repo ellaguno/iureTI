@@ -15,7 +15,8 @@
 set -eu
 
 REPO="ellaguno/iureTI"
-URL="" TOKEN="" NAME="" SITE="" PKG_VERSION="" UPGRADE=0
+# El token puede venir por la variable IURETI_TOKEN (no queda en el historial ni en `ps`).
+URL="" TOKEN="${IURETI_TOKEN:-}" NAME="" SITE="" PKG_VERSION="" UPGRADE=0
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 info() { echo ">> $*"; }
@@ -81,10 +82,11 @@ fi
 # --- registro en iurefficient --------------------------------------------------
 if [ "$UPGRADE" = 0 ] && [ -n "$URL" ]; then
     info "registrando la sonda en $URL"
-    set -- enroll --url "$URL" --token "$TOKEN"
+    # El token va por la entrada estándar (--token -), no por argv: no aparece en `ps`.
+    set -- enroll --url "$URL" --token -
     [ -n "$NAME" ] && set -- "$@" --name "$NAME"
     [ -n "$SITE" ] && set -- "$@" --site "$SITE"
-    iureti-discovery "$@" || true
+    printf '%s\n' "$TOKEN" | iureti-discovery "$@" || true
 fi
 
 systemctl restart iureti-discovery.service

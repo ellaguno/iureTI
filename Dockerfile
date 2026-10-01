@@ -2,7 +2,9 @@
 # Requiere red del host para ver la LAN (ARP, mDNS, SSDP):
 #   docker run -d --name iureti --network host --restart unless-stopped \
 #     -v iureti-data:/data ghcr.io/ellaguno/iureti:latest
-FROM python:3.12-slim
+# Imágenes base fijadas por digest (no por tag): el contenido no puede cambiar bajo el mismo nombre.
+# Actualizar manualmente al subir de versión.  python:3.12-slim
+FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
 
 LABEL org.opencontainers.image.title="iureTI Discovery" \
       org.opencontainers.image.source="https://github.com/ellaguno/iureTI" \
@@ -14,7 +16,7 @@ RUN apt-get update \
  && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin iureti \
  && mkdir -p /data && chown iureti:iureti /data
 
-COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9@sha256:538e0b39736e7feae937a65983e49d2ab75e1559d35041f9878b7b7e51de91e4 /uv /usr/local/bin/uv
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./

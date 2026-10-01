@@ -247,3 +247,13 @@ también estos y la foto.
 - La sonda solo hace conexiones salientes.
 - Si cambia una regla de identidad o el catálogo, se cambia en ambos lados y se regenera
   `identity_cases.json` con `scripts/export_integration_files.py`.
+
+## 7. Cambios de seguridad de la sonda 0.4.0 (a tener en cuenta)
+
+- **Credenciales SNMP**: ahora cada credencial puede traer `networks` (lista de CIDR). No afecta al
+  contrato de ingesta ni al heartbeat; es configuración local de la sonda.
+- **Configuración remota acotada**: la sonda **recorta** lo que manda iurefficient a redes permitidas
+  (privadas + las propias) y a límites seguros. Si la pantalla Sondas ofrece rangos públicos o valores
+  extremos, la sonda los ignorará (y lo registra). Conviene que la pantalla valide igual y muestre las
+  `networks` del heartbeat como sugerencia (ya excluyen interfaces virtuales).
+- **Heartbeat**: sin cambios de forma respecto a [04](04-api-ingesta.md).

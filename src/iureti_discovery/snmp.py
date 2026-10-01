@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import ipaddress
+from dataclasses import dataclass, field
 
 from pysnmp.hlapi.v3arch.asyncio import (
     CommunityData,
@@ -62,6 +63,24 @@ class SnmpCredential:
     auth_key: str = ""
     priv_protocol: str = "AES"
     priv_key: str = ""
+    networks: list = field(default_factory=list)  # subredes donde probar esta credencial; vacío = todas
+
+    def applies_to(self, ip: str) -> bool:
+        """Una community SNMP v2c viaja en claro: restringirla a su VLAN de gestión evita filtrarla
+        a toda la red (C1). Sin subredes configuradas, se prueba en cualquier objetivo (compatibilidad)."""
+        if not self.networks:
+            return True
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        for cidr in self.networks:
+            try:
+                if addr in ipaddress.ip_network(str(cidr).strip(), strict=False):
+                    return True
+            except ValueError:
+                continue
+        return False
 
     def auth_data(self):
         if self.version == "3":
@@ -167,6 +186,8 @@ async def query(ip: str, cred: SnmpCredential, timeout: float = 1.5, retries: in
 
 async def query_any(ip: str, creds: list[SnmpCredential], timeout: float = 1.5) -> SnmpInfo | None:
     for cred in creds:
+        if not cred.applies_to(ip):  # no mandar la community a subredes fuera de su alcance (C1)
+            continue
         try:
             info = await query(ip, cred, timeout=timeout)
         except Exception:

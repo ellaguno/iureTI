@@ -14,7 +14,9 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends ca-certificates curl dpkg-dev >/dev/null
 
 if ! command -v uv >/dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh >/dev/null
+    # Versión fijada del instalador de uv (no «latest»): el script no cambia bajo nuestros pies.
+    curl -LsSf "https://astral.sh/uv/${UV_VERSION:-0.11.21}/install.sh" \
+        | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh >/dev/null
 fi
 
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$SRC/pyproject.toml" | head -1)

@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 import httpx
 
-from . import __version__, localhost, netutil
+from . import __version__, localhost, netutil, security
 from .runtime import Busy, Runtime
 from .sync import SyncError
 
@@ -149,18 +149,25 @@ class Agent:
         self.state.update(error=message, connected=False)
 
     def apply_config(self, config: dict, version: str) -> None:
+        # A2: lo que manda iurefficient se recorta a límites seguros. Los rangos deben caer dentro de
+        # las redes permitidas (privadas + las propias, o la lista local), nunca internet arbitrario.
+        settings = self.rt.store.get_settings()
+        allowed = security.allowed_scan_networks(settings, [n.network for n in netutil.local_networks()])
+        config, warnings = security.clamp_remote_config(config, allowed)
+        for w in warnings:
+            log.warning("configuración de iurefficient: %s", w)
+
         updates: dict = {"managed": True, "config_version": version}
-        if isinstance(config.get("targets"), list):
-            try:
-                netutil.expand_targets(config["targets"])
-                updates["targets"] = config["targets"]
-            except ValueError as exc:
-                log.warning("rangos inválidos recibidos: %s", exc)
+        if "targets" in config:
+            updates["targets"] = config["targets"]
         schedule = config.get("schedule") or {}
         if "interval_minutes" in schedule:
             updates["schedule_interval_minutes"] = int(schedule["interval_minutes"] or 0)
         if "window" in schedule:
-            updates["schedule_window"] = schedule["window"] or ""
+            if not schedule["window"] or parse_window(schedule["window"]):
+                updates["schedule_window"] = schedule["window"] or ""
+            else:
+                log.warning("configuración de iurefficient: ventana horaria inválida, ignorada")
         for name, enabled in (config.get("collectors") or {}).items():
             if COLLECTOR_SETTINGS.get(name):
                 updates[COLLECTOR_SETTINGS[name]] = bool(enabled)

@@ -46,6 +46,22 @@ Estimado: 4–6 semanas, 1 desarrollador.
 - [ ] Del lado de iurefficient: pantalla Sondas + endpoint de heartbeat — entrega en [08](08-integracion-iurefficient.md)
 - [ ] Appliance Raspberry Pi / OVA; repositorio apt firmado
 
+## v0.4 — endurecimiento de seguridad (2026-10-01)
+Tras una revisión de seguridad (modelo de amenazas: dispositivo hostil en la red, sitio web en el equipo
+de la sonda, iurefficient comprometido, cadena de suministro). Detalle en [05](05-seguridad.md).
+
+- [x] Interfaz: comprobación de Host (anti DNS rebinding), cabecera propia anti-CSRF, token al exponerla,
+      CSP estricta, cabeceras de seguridad, `/docs` desactivado, enlaces solo http(s)
+- [x] Configuración remota de iurefficient acotada a redes permitidas y a límites seguros (no puede
+      sacar a la sonda a escanear internet)
+- [x] Credenciales SNMP limitables por subred; aviso de usar SNMP v3; la community no se envía fuera de alcance
+- [x] Descarga de imágenes/páginas a prueba de SSRF (valida host y cada redirección)
+- [x] CSV sin inyección de fórmulas; `/etc/default` 0640; token por entorno/stdin; systemd más restringido
+- [x] Cadena de suministro: permisos mínimos por job, acciones por SHA, imágenes por digest, atestación de
+      procedencia (keyless) de `.deb` e imagen, Dependabot
+- [x] 16 pruebas de seguridad que reproducen cada ataque
+- [ ] Cifrado de secretos en reposo (keyring) — sigue pendiente
+
 ## v2 — +4–6 semanas
 - **GLPI-Agent (adelantado de v3)**: inventario de laptops y de software instalado; el
   software se cruza con los asientos de licencia del inventario de iurefficient

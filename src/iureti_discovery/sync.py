@@ -143,6 +143,15 @@ def technical_description(asset: Asset) -> str:
     return " · ".join(parts)
 
 
+def csv_safe(value: str) -> str:
+    """Neutraliza la inyección de fórmulas: un equipo llamado «=HYPERLINK(...)» no debe ejecutarse
+    al abrir el CSV en Excel/Sheets. Se antepone un apóstrofo a los valores que empiezan por =, +, -, @."""
+    text = "" if value is None else str(value)
+    if text and text[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text
+    return text
+
+
 def to_import_csv(assets: list[Asset]) -> bytes:
     """CSV compatible con Inventario › Importar (1.1.0).
 
@@ -153,14 +162,14 @@ def to_import_csv(assets: list[Asset]) -> bytes:
     writer = csv.DictWriter(buf, fieldnames=IMPORT_HEADERS)
     writer.writeheader()
     for a in assets:
-        writer.writerow({
+        writer.writerow({k: csv_safe(v) for k, v in {
             "Nombre": suggested_name(a),
             "Tipo": "Hardware",
             "Marca": clean_vendor(a.vendor),
             "Modelo": a.model,
             "Serie": a.serial,
             "Descripción": technical_description(a),
-        })
+        }.items()})
     return buf.getvalue().encode("utf-8-sig")
 
 

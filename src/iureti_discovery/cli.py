@@ -24,24 +24,38 @@ def cmd_serve(args) -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
-    if args.host not in ("127.0.0.1", "localhost", "::1"):
-        print(f"AVISO: la interfaz quedará expuesta en {args.host}:{args.port} sin autenticación. "
-              "Usa un firewall o un túnel SSH (ver docs/05-seguridad.md).", file=sys.stderr)
+    app = create_app(args.db, agent=args.agent, bind_host=args.host, port=args.port)
     url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{args.port}/"
-    print(f"iureTI Discovery {__version__} — {url}")
+    exposed = args.host not in ("127.0.0.1", "localhost", "::1")
+    if exposed:
+        token = Store(args.db).get_settings().get("ui_token", "")
+        print(f"AVISO: la interfaz queda EXPUESTA en {args.host}:{args.port}. Mejor un túnel SSH "
+              "(ssh -L 8765:127.0.0.1:8765 …) que abrirla en la red (ver docs/05-seguridad.md).", file=sys.stderr)
+        print(f"Para entrar hace falta este token (ábrela con ?token=…):\n  {url}?token={token}")
+    else:
+        print(f"iureTI Discovery {__version__} — {url}")
     if args.open:
-        webbrowser.open(url)
+        webbrowser.open(url + (f"?token={Store(args.db).get_settings().get('ui_token','')}" if exposed else ""))
     if args.agent:
         print("Modo servicio: heartbeat con iurefficient y escaneos programados activos")
-    uvicorn.run(create_app(args.db, agent=args.agent), host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 
 def cmd_enroll(args) -> None:
     from .agent import Agent
     from .runtime import Runtime
 
+    # El token en la línea de comandos es visible en `ps`: se prefiere el entorno o la entrada estándar.
+    token = args.token or os.environ.get("IURETI_TOKEN", "")
+    if token == "-" or (not token and not sys.stdin.isatty()):
+        token = sys.stdin.readline().strip()
+    if not token:
+        sys.exit("Falta el token de sonda: --token, la variable IURETI_TOKEN, o por entrada estándar")
+    if not args.url.lower().startswith(("https://", "http://")):
+        sys.exit("La URL debe empezar por https:// (o http:// a una dirección local)")
+
     store = Store(args.db)
-    values = {"api_url": args.url.rstrip("/"), "api_token": args.token}  # «gestionada» al recibir config
+    values = {"api_url": args.url.rstrip("/"), "api_token": token}  # «gestionada» al recibir config
     if args.name:
         values["probe_id"] = args.name
     if args.site:
@@ -220,7 +234,8 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("enroll", help="Registra la sonda en iurefficient (URL + token de sonda)")
     p.add_argument("--url", required=True, help="URL de iurefficient, p.ej. https://cliente.iurefficient.com")
-    p.add_argument("--token", required=True, help="Token de sonda (iurprobe_…)")
+    p.add_argument("--token", help="Token de sonda (iurprobe_…). Mejor por la variable IURETI_TOKEN "
+                   "o por entrada estándar (--token -): la línea de comandos es visible en `ps`")
     p.add_argument("--name", help="Identificador de la sonda (por omisión, el hostname)")
     p.add_argument("--site", help="Sitio / sucursal")
     p.set_defaults(func=cmd_enroll)

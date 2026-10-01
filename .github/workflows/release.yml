@@ -1,25 +1,30 @@
 name: Release
 
 # Publica una versión al empujar un tag vX.Y.Z (debe coincidir con pyproject.toml):
-#   git tag v0.3.0 && git push origin v0.3.0
+#   git tag v0.4.0 && git push origin v0.4.0
+#
+# Cadena de suministro:
+# - permisos mínimos por job (el job de pruebas no puede escribir nada);
+# - acciones fijadas por SHA de commit (Dependabot las actualiza, ver .github/dependabot.yml);
+# - imágenes base por digest (Dockerfile, packaging/build-deb.sh);
+# - atestación de procedencia (keyless, OIDC) de los .deb y firma de la imagen.
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: El tag coincide con la versión del proyecto
         run: |
           v=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
           [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME ≠ versión $v"; exit 1; }
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
       - run: uv sync --frozen && uv run pytest -q
 
   deb:
@@ -32,8 +37,11 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    permissions:
+      id-token: write       # atestación de procedencia (keyless)
+      attestations: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Construir .deb (${{ matrix.arch }})
         run: docker run --rm -v "$PWD":/src -w /src debian:12 bash packaging/build-deb.sh
       - name: Probar instalación en Ubuntu 22.04 y 24.04 limpios
@@ -46,7 +54,11 @@ jobs:
               iureti-discovery --version
               iureti-discovery scan 127.0.0.1 --no-snmp | tail -1'
           done
-      - uses: actions/upload-artifact@v7
+      - name: Atestación de procedencia del .deb
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a  # v3
+        with:
+          subject-path: dist/*.deb
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: deb-${{ matrix.arch }}
           path: dist/*.deb*
@@ -54,16 +66,21 @@ jobs:
   docker:
     needs: test
     runs-on: ubuntu-24.04
+    permissions:
+      packages: write       # publicar en ghcr.io
+      id-token: write        # firma keyless de la imagen (atestación)
+      attestations: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v7
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -75,13 +92,21 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.description=Sonda de inventario de TI para iurefficient
             org.opencontainers.image.licenses=Apache-2.0
+      - name: Atestación de procedencia de la imagen
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a  # v3
+        with:
+          subject-name: ghcr.io/ellaguno/iureti
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   release:
     needs: [deb, docker]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write        # crear el release
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           path: out
           pattern: deb-*  # no el registro de build de Docker

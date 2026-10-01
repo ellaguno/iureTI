@@ -6,6 +6,9 @@ if [ "$1" = configure ]; then
         --no-create-home --shell /usr/sbin/nologin --gecos "iureTI Discovery" iureti
     install -d -o iureti -g iureti -m 0750 /var/lib/iureti
     install -d -o iureti -g iureti -m 0755 /var/cache/iureti
+    # Puede contener claves de IA: legible solo por root y el grupo iureti, no por todos (M3).
+    chgrp iureti /etc/default/iureti-discovery 2>/dev/null || true
+    chmod 0640 /etc/default/iureti-discovery 2>/dev/null || true
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload
         systemctl enable iureti-discovery.service >/dev/null 2>&1 || true

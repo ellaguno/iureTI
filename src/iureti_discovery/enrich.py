@@ -9,17 +9,15 @@ Los resultados se guardan en caché por huella de producto: dos equipos del mism
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import json
 import re
-import socket
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlsplit
 
 import anthropic
 import httpx
 
-from . import mdns
+from . import mdns, security
 from .models import DEVICE_TYPES, Asset, utcnow
 from .oui import cache_dir
 from .reconcile import is_generic_model, product_brand
@@ -180,8 +178,9 @@ def normalize_report(data: dict) -> dict:
         "specs": [str(x).strip() for x in specs if str(x).strip()][:8] if isinstance(specs, list) else [],
         "release_year": text("release_year"),
         "support_status": text("support_status"),
-        "product_url": text("product_url"),
-        "image_url": text("image_url"),
+        # Solo http(s): el modelo podría devolver javascript:/data: y la ficha es clicable (A3).
+        "product_url": text("product_url") if security.is_safe_link(text("product_url")) else "",
+        "image_url": text("image_url") if security.is_safe_link(text("image_url")) else "",
         "confidence": text("confidence").lower() if text("confidence").lower() in ("alta", "media", "baja") else "baja",
         "notes": text("notes"),
     }
@@ -327,16 +326,14 @@ def _openrouter_post(client: httpx.Client, headers: dict, body: dict, final: boo
 # ---------------------------------------------------------------------------
 # Imagen del producto
 # ---------------------------------------------------------------------------
+# Una URL que dio la IA o que anunció un equipo no es de fiar: puede apuntar a la red interna o,
+# tras validarla, redirigir a ella. Por eso se resuelve el host, se exige que sea público, se conecta
+# a esa IP fija y se validan TODOS los saltos (security.resolve_safe_target + MAX_REDIRECTS).
+MAX_REDIRECTS = 4
+
+
 def is_public_url(url: str) -> bool:
-    """Evita que una URL devuelta por la búsqueda haga a la sonda consultar su propia red interna."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        return False
-    try:
-        infos = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
-    except OSError:
-        return False
-    return bool(infos) and all(ipaddress.ip_address(info[4][0]).is_global for info in infos)
+    return security.resolve_safe_target(url) is not None
 
 
 _OG_IMAGE = re.compile(
@@ -344,22 +341,41 @@ _OG_IMAGE = re.compile(
     r'|<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property|name)=["\'](?:og:image|twitter:image)', re.I)
 
 
+def _safe_get(client: httpx.Client, url: str, max_bytes: int) -> tuple[httpx.Response, bytes] | None:
+    """GET siguiendo redirecciones a mano, validando cada destino contra SSRF. (resp_final, cuerpo) o None."""
+    for _ in range(MAX_REDIRECTS + 1):
+        target = security.resolve_safe_target(url)
+        if target is None:
+            return None
+        ip, host = target
+        parts = urlsplit(url)
+        connect_url = f"{parts.scheme}://{ip}" + (f":{parts.port}" if parts.port else "") + (parts.path or "/")
+        if parts.query:
+            connect_url += "?" + parts.query
+        try:
+            with client.stream("GET", connect_url, headers={"Host": host}, follow_redirects=False) as resp:
+                if resp.is_redirect and resp.headers.get("location"):
+                    url = str(httpx.URL(url).join(resp.headers["location"]))
+                    continue
+                if resp.status_code != 200:
+                    return None
+                body = b""
+                for chunk in resp.iter_bytes():
+                    body += chunk
+                    if len(body) > max_bytes:
+                        break
+                return resp, body
+        except httpx.HTTPError:
+            return None
+    return None
+
+
 def page_image(client: httpx.Client, page_url: str) -> str:
-    if not is_public_url(page_url):
+    got = _safe_get(client, page_url, MAX_PAGE_BYTES)
+    if got is None or "html" not in got[0].headers.get("content-type", ""):
         return ""
-    try:
-        with client.stream("GET", page_url) as resp:
-            if resp.status_code != 200 or "html" not in resp.headers.get("content-type", ""):
-                return ""
-            body = b""
-            for chunk in resp.iter_bytes():
-                body += chunk
-                if len(body) > MAX_PAGE_BYTES:
-                    break
-    except httpx.HTTPError:
-        return ""
-    m = _OG_IMAGE.search(body.decode("utf-8", errors="replace"))
-    return urljoin(str(resp.url), m.group(1) or m.group(2)) if m else ""
+    m = _OG_IMAGE.search(got[1].decode("utf-8", errors="replace"))
+    return urljoin(page_url, m.group(1) or m.group(2)) if m else ""
 
 
 EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
@@ -373,24 +389,16 @@ def images_dir() -> Path:
 
 def download_image(client: httpx.Client, url: str) -> str:
     """Descarga y valida la imagen; devuelve el nombre del archivo en caché o ''."""
-    if not url or not is_public_url(url):
+    if not url:
         return ""
-    name = hashlib.sha1(url.encode()).hexdigest()[:20]
-    try:
-        with client.stream("GET", url) as resp:
-            ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-            if resp.status_code != 200 or ctype not in EXTENSIONS:
-                return ""
-            data = b""
-            for chunk in resp.iter_bytes():
-                data += chunk
-                if len(data) > MAX_IMAGE_BYTES:
-                    return ""
-    except httpx.HTTPError:
+    got = _safe_get(client, url, MAX_IMAGE_BYTES)
+    if got is None:
         return ""
-    if len(data) < 1024:  # píxeles de seguimiento, íconos rotos
+    resp, data = got
+    ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+    if ctype not in EXTENSIONS or len(data) < 1024 or len(data) > MAX_IMAGE_BYTES:
         return ""
-    filename = name + EXTENSIONS[ctype]
+    filename = hashlib.sha1(url.encode()).hexdigest()[:20] + EXTENSIONS[ctype]
     (images_dir() / filename).write_bytes(data)
     return filename
 
@@ -398,7 +406,7 @@ def download_image(client: httpx.Client, url: str) -> str:
 def resolve_image(result: dict) -> tuple[str, str]:
     """(url, archivo) de la primera imagen válida: la que dio la búsqueda o la og:image de la página del producto."""
     headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) iureti-discovery"}
-    with httpx.Client(timeout=10.0, follow_redirects=True, headers=headers) as client:
+    with httpx.Client(timeout=10.0, follow_redirects=False, headers=headers) as client:
         candidates = [result.get("image_url", "")]
         for page in (result.get("product_url"), result.get("product_url_hint")):
             if page:

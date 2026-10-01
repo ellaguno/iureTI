@@ -22,15 +22,64 @@
 - [ ] (v3) WinRM habilitado por GPO para la cuenta de inventario
 - [ ] Token de sonda emitido en iurefficient
 
-## Protección de la sonda
+## Modelo de amenazas y defensas (0.4.0)
 
-- La UI web escucha por defecto solo en `127.0.0.1`. Para exponerla en la red se debe
-  configurar explícitamente `--host 0.0.0.0` y **debe** protegerse (v2: usuario/contraseña
-  y TLS; mientras tanto, usar túnel SSH).
-- Base de datos SQLite con permisos `600`.
-- Secretos: v2 usará el keyring del sistema (Secret Service) o un archivo cifrado con
-  clave derivada.
+La sonda vive DENTRO de la red del cliente y procesa datos de equipos que no controla. Se blindó contra
+cuatro frentes; cada defensa tiene pruebas que reproducen el ataque (`tests/test_security.py`).
+
+### La interfaz web
+- Escucha solo en `127.0.0.1` por omisión. Toda la API comprueba la cabecera **Host** (defensa contra
+  *DNS rebinding*: una página web cuyo dominio apunte a `127.0.0.1` recibe un **400**).
+- Cada petición a `/api/*` exige una **cabecera propia** (`X-Iureti-UI`) que una página de otro sitio no
+  puede poner sin un *preflight* CORS, que nunca se concede: bloquea CSRF y lecturas de otro origen. El
+  `Origin` ajeno se rechaza.
+- Al exponerla fuera de loopback (`--host 0.0.0.0`) se genera un **token de interfaz** obligatorio; se
+  entrega por `?token=…` y se guarda en la sesión del navegador. Aun así, lo recomendado sigue siendo un
+  túnel SSH (`ssh -L 8765:127.0.0.1:8765 …`) en vez de abrir el puerto.
+- Respuestas con **CSP** estricta (`default-src 'none'`, `script-src 'self'`), `X-Frame-Options: DENY`,
+  `nosniff` y `no-referrer`. `/docs` y `/openapi.json` desactivados. El script va en `/app.js` (sin JS en
+  línea). Los enlaces que muestra la ficha de producto solo pueden ser `http(s)` (nada de `javascript:`).
+
+### La configuración que llega de iurefficient
+- Se recorta a límites seguros (`security.clamp_remote_config`): los **rangos deben caer dentro de las
+  redes permitidas** (privadas + las propias de la sonda, o la lista que fije el operador en Configuración);
+  un iurefficient comprometido **no** puede hacer que la sonda escanee internet. Concurrencia, timeout,
+  heartbeat e intervalo se acotan.
+- Los secretos (SNMP, claves de IA) **no** viajan en la configuración; se capturan en la sonda.
+
+### Las credenciales SNMP
+- Una *community* SNMP v2c viaja sin cifrar; quien escuche en el puerto 161 de un equipo la captura. Por eso
+  cada credencial se puede **limitar a subredes** (su VLAN de gestión): fuera de ellas no se envía. Se
+  recomienda **SNMP v3** (autenticación y cifrado). La interfaz avisa de esto en cada credencial v2c.
+
+### Las URLs de la red / de la IA (SSRF)
+- Toda URL que la sonda va a pedir (foto de producto, página de un equipo) se valida resolviendo el host y
+  exigiendo que **todas** sus IPs sean públicas; se conecta a esa IP fija y se **validan todas las
+  redirecciones** una a una (una redirección a `192.168.x` se corta). Imágenes: solo
+  `image/jpeg|png|webp|gif`, máx. 5 MB.
+
+## Protección del servicio y los secretos
+- El servicio corre como el usuario `iureti` (sin shell, sin root), con endurecimiento de systemd
+  (`ProtectSystem=strict`, `ProtectHome`, `NoNewPrivileges`, `RestrictAddressFamilies`, `UMask=0077`…) y
+  como único privilegio `CAP_NET_RAW` para `ping`.
+- Base de datos SQLite con permisos `600`; `/etc/default/iureti-discovery` con `0640 root:iureti` (puede
+  llevar claves de IA). El token de sonda se da por `IURETI_TOKEN` o por entrada estándar, nunca en la línea
+  de comandos (visible en `ps`).
+- El CSV de exportación neutraliza la **inyección de fórmulas** (un equipo llamado `=…` no se ejecuta en
+  Excel).
+- Pendiente (roadmap): cifrar los secretos en reposo (keyring del sistema o clave de máquina).
 - Registro (log) de cada escaneo: quién lo lanzó, rangos, fuentes, duración.
+
+## Cadena de suministro
+- `release.yml` con **permisos mínimos por job** (el job de pruebas no escribe nada), acciones **fijadas por
+  SHA** de commit (Dependabot las actualiza) e imágenes base **por digest**.
+- Los `.deb` y la imagen se publican con **atestación de procedencia** (keyless, OIDC): se puede comprobar
+  que salieron de este repositorio y de este workflow.
+  ```bash
+  gh attestation verify iureti-discovery_0.4.0_amd64.deb --repo ellaguno/iureTI
+  gh attestation verify oci://ghcr.io/ellaguno/iureti:0.4.0 --repo ellaguno/iureTI
+  ```
+- `install.sh` verifica el SHA-256 del `.deb` antes de instalarlo.
 
 ## Identificación por internet (opcional, desactivada por omisión)
 
@@ -51,9 +100,10 @@ sysName, el nombre NetBIOS/mDNS, las series, las IPs y las MACs del equipo (p. e
 incluye el hostname: «Linux srv-contabilidad 5.15…» → «Linux [equipo] 5.15…»).
 
 **Protecciones**:
-- La sonda solo descarga imágenes/páginas de URLs **públicas** (resuelve el host y rechaza IPs privadas,
-  loopback y link-local) para que una URL devuelta por la búsqueda no la haga consultar la red interna.
-- Imágenes: solo `image/jpeg|png|webp|gif`, máximo 5 MB, guardadas en `~/.cache/iureti-discovery/images`.
+- La sonda solo descarga imágenes/páginas de URLs **públicas**, resolviendo el host, exigiendo que todas
+  sus IPs sean públicas, conectándose a esa IP fija y validando **cada redirección** (ver «Las URLs de la
+  red / de la IA» arriba): una URL devuelta por la búsqueda no puede llevarla a la red interna.
+- Imágenes: solo `image/jpeg|png|webp|gif`, máximo 5 MB, guardadas en la caché local.
 - Las claves de API se guardan en la BD local (permisos 600) y se enmascaran en la interfaz; también se
   pueden dar por variable de entorno (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`).
 - Con Anthropic, modelo por omisión `claude-opus-5-5` con `fallbacks: "default"`: si el modelo declina una

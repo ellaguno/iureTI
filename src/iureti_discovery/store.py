@@ -64,6 +64,9 @@ DEFAULT_SETTINGS = {
     "schedule_window": "",  # "01:00-05:00" hora local; "" = cualquier hora
     "auto_sync": True,  # enviar a iurefficient después de cada escaneo programado
     "auto_enrich": False,  # buscar en internet los productos nuevos después de cada escaneo
+    # Seguridad
+    "allowed_networks": [],  # CIDRs que la sonda acepta escanear; vacío = privadas + redes propias
+    "ui_token": "",  # token de la interfaz web (solo se exige al exponerla fuera de 127.0.0.1)
 }
 
 

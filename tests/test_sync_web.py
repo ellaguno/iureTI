@@ -72,7 +72,8 @@ def db_path(tmp_path):
 
 @pytest.fixture
 def client(db_path):
-    return TestClient(create_app(db_path))
+    # La interfaz exige Host de loopback (anti-rebinding) y la cabecera propia en /api/*.
+    return TestClient(create_app(db_path), base_url="http://127.0.0.1:8765", headers={"X-Iureti-UI": "1"})
 
 
 def test_settings_secrets_are_masked_and_preserved(client, db_path):
