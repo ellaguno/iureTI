@@ -3,10 +3,14 @@
 export IURETI_DB="${IURETI_DB:-/var/lib/iureti/iureti.db}"
 export IURETI_CACHE_DIR="${IURETI_CACHE_DIR:-/var/cache/iureti}"
 export IURETI_INSTALL="${IURETI_INSTALL:-deb}"
+# Host y puerto del servicio (solo esos dos: el archivo también guarda claves), para que `status` muestre la URL
+conf() { sed -n "s/^[[:space:]]*$1=[\"']\{0,1\}\([^\"' ]*\).*/\1/p" /etc/default/iureti-discovery 2>/dev/null | tail -1; }
+[ -n "${IURETI_HOST:-}" ] || { IURETI_HOST=$(conf IURETI_HOST); [ -z "$IURETI_HOST" ] || export IURETI_HOST; }
+[ -n "${IURETI_PORT:-}" ] || { IURETI_PORT=$(conf IURETI_PORT); [ -z "$IURETI_PORT" ] || export IURETI_PORT; }
 BIN=/opt/iureti/venv/bin/iureti-discovery
 
 if [ "$(id -u)" = 0 ]; then
-    exec runuser -u iureti -- "$BIN" "$@"
+    exec runuser -u iureti -- env IURETI_HOST="${IURETI_HOST:-}" IURETI_PORT="${IURETI_PORT:-}" "$BIN" "$@"
 fi
 if [ "$(id -un)" != iureti ] && [ -e "$IURETI_DB" ] && [ ! -w "$IURETI_DB" ]; then
     echo "iureti-discovery: la base del servicio es del usuario iureti; usa: sudo iureti-discovery $*" >&2

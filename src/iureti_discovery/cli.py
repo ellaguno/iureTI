@@ -15,6 +15,11 @@ from .store import Store
 from .sync import DEVICE_TYPE_LABELS, SyncError, build_batch, to_import_csv
 
 
+def ui_url(host: str, port: int) -> tuple[str, bool]:
+    """URL de la interfaz web y si queda expuesta fuera de este equipo."""
+    return f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/", host not in ("127.0.0.1", "localhost", "::1")
+
+
 def cmd_serve(args) -> None:
     import logging
 
@@ -25,8 +30,7 @@ def cmd_serve(args) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     app = create_app(args.db, agent=args.agent, bind_host=args.host, port=args.port)
-    url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{args.port}/"
-    exposed = args.host not in ("127.0.0.1", "localhost", "::1")
+    url, exposed = ui_url(args.host, args.port)
     if exposed:
         token = Store(args.db).get_settings().get("ui_token", "")
         print(f"AVISO: la interfaz queda EXPUESTA en {args.host}:{args.port}. Mejor un túnel SSH "
@@ -82,6 +86,14 @@ def cmd_status(args) -> None:
     scans = store.list_scans(1)
     assets = store.list_assets()
     print(f"iureTI Discovery {__version__}")
+    url, exposed = ui_url(os.environ.get("IURETI_HOST") or "127.0.0.1", int(os.environ.get("IURETI_PORT") or 8765))
+    if not exposed:
+        url += "  (solo desde este equipo)"
+    elif s.get("ui_token"):
+        url += f"?token={s['ui_token']}"
+    else:
+        url += "  (el token se genera al arrancar el servicio)"
+    print(f"  Interfaz web:   {url}")
     print(f"  Base de datos:  {store.path}")
     print(f"  Sonda:          {s.get('probe_id') or '(hostname)'}  sitio: {s.get('site') or '-'}")
     print(f"  iurefficient:   {s.get('api_url') or '(no configurado)'}{'  [gestionada]' if s.get('managed') else ''}")

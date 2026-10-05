@@ -14,5 +14,33 @@ if [ "$1" = configure ]; then
         systemctl enable iureti-discovery.service >/dev/null 2>&1 || true
         systemctl restart iureti-discovery.service || true
     fi
+
+    # Dónde queda la interfaz: lo único que el usuario necesita saber tras `apt install`.
+    conf() { sed -n "s/^[[:space:]]*$1=[\"']\{0,1\}\([^\"' ]*\).*/\1/p" /etc/default/iureti-discovery 2>/dev/null | tail -1; }
+    HOST=$(conf IURETI_HOST); HOST=${HOST:-127.0.0.1}
+    PORT=$(conf IURETI_PORT); PORT=${PORT:-8765}
+    case "$HOST" in 0.0.0.0|::) SHOW=$(hostname -I 2>/dev/null | awk '{print $1}'); SHOW=${SHOW:-127.0.0.1} ;; *) SHOW=$HOST ;; esac
+    cat <<MSG
+
+  ============================================================
+    iureTI Discovery — interfaz web:
+
+        http://$SHOW:$PORT/
+
+MSG
+    case "$HOST" in
+        127.0.0.1|localhost|::1)
+            echo "    Solo desde este equipo. Desde otro, con un túnel SSH:"
+            echo "        ssh -L $PORT:127.0.0.1:$PORT usuario@$(hostname)" ;;
+        *)  echo "    Expuesta en la red: pide token. Consúltalo con:"
+            echo "        sudo iureti-discovery status" ;;
+    esac
+    cat <<MSG
+
+    Estado:   sudo iureti-discovery status
+    Ajustes:  /etc/default/iureti-discovery
+  ============================================================
+
+MSG
 fi
 exit 0

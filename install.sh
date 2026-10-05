@@ -97,13 +97,36 @@ else
     echo "El servicio no arrancó; revisa: journalctl -u iureti-discovery -n 50" >&2
 fi
 
+# Dirección de la interfaz según la configuración real (/etc/default/iureti-discovery)
+conf() { sed -n "s/^[[:space:]]*$1=[\"']\{0,1\}\([^\"' ]*\).*/\1/p" /etc/default/iureti-discovery 2>/dev/null | tail -1; }
+UI_HOST=$(conf IURETI_HOST); UI_HOST=${UI_HOST:-127.0.0.1}
+UI_PORT=$(conf IURETI_PORT); UI_PORT=${UI_PORT:-8765}
+case "$UI_HOST" in
+    0.0.0.0|::) UI_SHOW=$(hostname -I 2>/dev/null | awk '{print $1}'); UI_SHOW=${UI_SHOW:-127.0.0.1} ;;
+    *) UI_SHOW=$UI_HOST ;;
+esac
+case "$UI_HOST" in
+    127.0.0.1|localhost|::1) UI_NOTE="Solo desde este equipo. Desde otro, con un túnel SSH:
+        ssh -L $UI_PORT:127.0.0.1:$UI_PORT usuario@$(hostname)   →   http://127.0.0.1:$UI_PORT/" ;;
+    *) UI_NOTE="Expuesta en la red: pide token (sudo iureti-discovery status lo muestra)." ;;
+esac
+
 cat <<MSG
 
-iureTI Discovery $PKG_VERSION instalado.
+============================================================
+  iureTI Discovery $PKG_VERSION instalado.
+
+  Abre la interfaz web para configurar y usar la sonda:
+
+      http://$UI_SHOW:$UI_PORT/
+
+  $UI_NOTE
+============================================================
+
   Estado:      sudo iureti-discovery status
   Bitácora:    journalctl -u iureti-discovery -f
-  Interfaz:    http://127.0.0.1:8765/  (desde otro equipo: ssh -L 8765:127.0.0.1:8765 $(hostname))
   Programar:   sudo iureti-discovery schedule --every 1d --window 01:00-05:00 --targets 192.168.1.0/24
+  Ajustes:     /etc/default/iureti-discovery  (puerto, host, claves de IA)
   Actualizar:  vuelve a correr este instalador (o con --upgrade)
   Desinstalar: sudo apt purge iureti-discovery   (borra inventario local y configuración)
 
