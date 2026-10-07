@@ -12,6 +12,7 @@
 │   ├─ oui       fabricante por MAC                                │
 │   ├─ snmp      v2c / v3                                          │
 │   ├─ mdns, ssdp/upnp, http, netbios, ttl, dmi (la sonda)         │
+│   ├─ snmp-arp, virtual (anfitriones: ARP/VMs por SNMP, puentes) │
 │   ├─ (v2) ldap, lldp/cdp, tablas ARP/MAC                         │
 │   └─ (v3) winrm, ssh, APIs de plataformas                        │
 │                                                                  │
@@ -57,6 +58,11 @@ Resultado de conciliar observaciones:
 | `sources[]` | Qué collectors lo vieron |
 | `first_seen`, `last_seen` | |
 | `synced_at`, `remote_status`, `inventory_id` | Último envío y respuesta de iurefficient (`matched`, `created_pending`, `ignored`, `rejected`); `inventory_id` es UUID |
+| `attributes.virtual` (v0.5) | Si es contenedor o VM: `kind` (`container`/`vm`), `platform` (docker, kvm, proxmox, vmware, hyperv…), `host_id`/`host_name`/`host_ip` (el activo que lo aloja), `confidence` (`alta` por evidencia directa, `media` si es probable), `evidence`, `reach` (`network` o `host` si solo se ve desde su anfitrión), `host_candidates` si no se pudo decidir |
+| `attributes.guests` (v0.5) | En un anfitrión: lista de `{id, name, ip, kind, platform}` de lo que aloja |
+| `attributes.hosting` (v0.5) | Lo que dijo SNMP del anfitrión: interfaces de virtualización, plataformas, VMs de ESXi |
+| `attributes.names` (v0.5) | Todos los nombres con que se vio al equipo (DNS, sysName, NetBIOS, mDNS, nombre de VM) |
+| `attributes.merged_from` (v0.5) | Duplicados que absorbió: `{id, fingerprint}` (se envían como `superseded_probe_asset_ids`) |
 
 ## Identidad y deduplicación
 
@@ -68,7 +74,44 @@ Prioridad de la clave de identidad:
 4. `ip` (solo último recurso; identidad débil)
 
 Dos observaciones se fusionan si comparten cualquiera de las claves fuertes (1–3). La IP
-solo se usa si no hay nada más.
+solo se usa si no hay nada más. La MAC localmente administrada es clave **débil** (0.4.2): va al final y
+una coincidencia exacta casa; quedan fuera las derivadas (Docker `02:42:<ip>`).
+
+**Entre escaneos (v0.5).** Un equipo puede verse con claves distintas en escaneos distintos (hoy la MAC,
+mañana solo el nombre desde otra subred). Por eso:
+
+- Se indexan **todos los nombres** con que se vio (DNS, sysName, NetBIOS, mDNS, nombre de VM), no solo el
+  principal.
+- Si una observación casa con **varios activos** por claves distintas, eran el mismo equipo: se **fusionan**
+  en el de la clave más fuerte (IPs, MACs, fuentes, atributos; `first_seen` el más antiguo; se conservan
+  `inventory_id` y el tipo fijado a mano). El absorbido se borra y el principal guarda `merged_from` y se
+  reenvía con `superseded_probe_asset_ids`.
+- Los duplicados que ya hubiera en la base se **consolidan al cargar** (y con `iureti-discovery consolidate`).
+- Los hosts de **otras subredes** no tienen MAC por ARP; la **tabla ARP del router** (SNMP) se la da, y así
+  se reconocen por MAC entre escaneos (`attributes.mac_from = snmp-arp:<router>`).
+- Un invitado que solo se ve desde su anfitrión (contenedor NAT: `172.17.0.2` existe en cada servidor con
+  Docker) tiene su IP **en el ámbito de su anfitrión**: clave propia `guest:<anfitrión>/<mac|ip>` (solo de la
+  sonda; a iurefficient llega como `fingerprint`).
+
+## Contenedores y máquinas virtuales (v0.5)
+
+Módulo `virtual.py`. Qué es virtual y qué equipo real lo contiene, de más a menos seguro:
+
+1. **Tabla ARP del anfitrión por SNMP** en una interfaz virtual (docker0, virbr0, vmbr0, vnet…): el invitado
+   cuelga de ese equipo. Si no se alcanza desde la red se da de alta igual, «visto solo a través del
+   anfitrión» (`reach = host`, `alive_by = snmp-arp`). Configurable: *Incluir contenedores y VMs que solo se ven
+   desde su anfitrión* (`include_hosted_guests`).
+2. **Tabla de VMs de ESXi** (VMWARE-VMINFO-MIB): nombre y MAC de cada VM.
+3. **El equipo de la sonda**: lo visto por sus redes virtuales o colgado de sus puentes (`bridge fdb show`).
+4. **MAC dinámica de Hyper-V**: codifica los dos últimos octetos de la IP del anfitrión → *probable*.
+5. **Prefijo de MAC**: dice que es virtual. Si la sonda corre en un anfitrión con interfaces de virtualización
+   del mismo tipo, se le atribuye como *probable* (suposición educada); si no, los hipervisores de esa familia
+   vistos en la red quedan como `host_candidates` y el anfitrión como desconocido.
+
+La relación se recalcula entera tras cada escaneo sobre todos los activos (`virtual.annotate`): el invitado
+guarda `host_id`; el anfitrión, `guests`. El tipo de dispositivo no cambia por ser virtual (una VM Windows
+Server sigue siendo `server`); lo virtual es un atributo ortogonal. Un anfitrión suma a `hypervisor` (VMs por
+SNMP, puertos vnet/tap, 2179 Hyper-V) o a `server` (contenedores).
 
 ## Clasificación
 
@@ -101,7 +144,8 @@ src/iureti_discovery/
   localhost.py     datos DMI de la propia sonda
   enrich.py        identificación por internet (Claude + búsqueda web) e imagen del producto
   classify.py      clasificador por reglas
-  reconcile.py     conciliación / deduplicación
+  virtual.py       contenedores y VMs: qué es virtual y qué equipo lo aloja
+  reconcile.py     conciliación / deduplicación (fusión de duplicados entre escaneos)
   scanner.py       orquestador de un escaneo
   store.py         persistencia SQLite
   sync.py          envío a la API y CSV para Inventario › Importar

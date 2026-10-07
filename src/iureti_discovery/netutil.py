@@ -153,19 +153,24 @@ def default_gateways() -> set[str]:
         return set()
 
 
-def read_arp_cache() -> dict[str, str]:
-    """IP → MAC desde la caché ARP del kernel (solo entradas completas)."""
+def read_arp_table() -> dict[str, tuple[str, str]]:
+    """IP → (MAC, interfaz) desde la caché ARP del kernel (solo entradas completas)."""
     result = {}
     try:
         with open("/proc/net/arp") as fh:
             next(fh)
             for line in fh:
                 cols = line.split()
-                if len(cols) >= 4 and cols[2] != "0x0" and cols[3] != "00:00:00:00:00:00":
-                    result[cols[0]] = cols[3].lower()
+                if len(cols) >= 6 and cols[2] != "0x0" and cols[3] != "00:00:00:00:00:00":
+                    result[cols[0]] = (cols[3].lower(), cols[5])
     except OSError:
         pass
     return result
+
+
+def read_arp_cache() -> dict[str, str]:
+    """IP → MAC desde la caché ARP del kernel (solo entradas completas)."""
+    return {ip: mac for ip, (mac, _iface) in read_arp_table().items()}
 
 
 async def reverse_dns(ip: str, timeout: float = 2.0) -> str:

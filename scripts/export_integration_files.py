@@ -15,8 +15,9 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-from iureti_discovery import __version__
+from iureti_discovery import __version__, virtual
 from iureti_discovery.agent import Agent
+from iureti_discovery.classify import classify
 from iureti_discovery.models import DEVICE_TYPES, Asset, Observation, SnmpInfo
 from iureti_discovery.netutil import is_locally_administered, normalize_mac
 from iureti_discovery.reconcile import Reconciler, identity_keys, normalize_hostname, normalize_serial
@@ -89,9 +90,28 @@ def example_assets() -> list[Asset]:
                     mdns={"host": "BRN30055C000004", "services": ["_ipp._tcp", "_pdl-datastream._tcp"],
                           "names": [], "txt": {"_ipp._tcp:ty": "Brother MFC-L2710DW series"}}),
     ]
+    # v0.5: un ESXi con su tabla de VMs y una VM que corre en él (la relación la resuelve virtual.annotate)
+    esx_hosting = {"container_interfaces": [], "vm_interfaces": [], "vm_platforms": [], "arp": [],
+                   "vms": [{"name": "srv-contabilidad", "macs": ["00:50:56:00:00:31"]}]}
+    observations += [
+        Observation(ip="10.0.0.40", mac="00:1a:2b:00:00:40", vendor="Dell Inc.", open_ports=[22, 443, 902], alive_by=["ping", "tcp"],
+                    ttl=64, hostname="esx-01.corp.local", observed_at=ts, hosting=esx_hosting,
+                    snmp=SnmpInfo(sys_descr="VMware ESXi 8.0.2 build-22380479 VMware, Inc. x86_64",
+                                  sys_object_id="1.3.6.1.4.1.6876.4.1", sys_name="esx-01", serial="7XQ2K93", model="PowerEdge R650",
+                                  credential="core-ro")),
+        Observation(ip="10.0.0.31", mac="00:50:56:00:00:31", vendor="VMware, Inc.", open_ports=[135, 445, 3389, 1433],
+                    alive_by=["ping", "tcp"], ttl=128, hostname="srv-contabilidad.corp.local", observed_at=ts,
+                    netbios={"name": "SRV-CONTABILIDAD", "group": "CORP"},
+                    virtual={"kind": "vm", "platform": "vmware", "host_ip": "10.0.0.40", "host_name": "esx-01",
+                             "name": "srv-contabilidad", "reach": "network", "confidence": "alta",
+                             "evidence": "VM «srv-contabilidad» en la tabla de VMs de esx-01"}),
+    ]
     rec = Reconciler([])
     assets = [rec.merge(o)[0] for o in observations]
+    virtual.annotate(assets, virtual.LocalHosting({}, {}), "sonda-matriz-01")
     for a in assets:
+        if not a.type_locked:
+            a.device_type, a.confidence, a.reasons = classify(a)
         a.first_seen = ts
     # El módem ya identificado en internet (atributo product)
     assets[0].attributes["enrichment"] = {
@@ -107,9 +127,10 @@ def example_assets() -> list[Asset]:
 
 
 def example_batch() -> dict:
-    batch = build_batch(example_assets(), {"probe_id": "sonda-matriz-01", "site": "Matriz CDMX"},
+    assets = example_assets()
+    batch = build_batch(assets, {"probe_id": "sonda-matriz-01", "site": "Matriz CDMX"},
                         {"started_at": "2026-09-30T16:34:40Z", "finished_at": "2026-09-30T16:34:59Z",
-                         "targets": ["192.168.1.0/24", "10.0.0.0/24"]})
+                         "targets": ["192.168.1.0/24", "10.0.0.0/24"]}, {a.id: a for a in assets})
     batch["batch_id"] = "0d6c3b1e-8f0a-4a57-9b7e-2a0c9c1e4f11"
     return batch
 
@@ -120,7 +141,7 @@ def example_heartbeat() -> dict:
         store.update_settings({"probe_id": "sonda-matriz-01", "site": "Matriz CDMX"})
         store.save_assets(example_assets())
         store.log_scan({"started_at": "2026-09-30T07:00:02Z", "finished_at": "2026-09-30T07:04:12Z",
-                        "targets": ["192.168.1.0/24", "10.0.0.0/24"], "phase": "terminado", "alive": 4,
+                        "targets": ["192.168.1.0/24", "10.0.0.0/24"], "phase": "terminado", "alive": 6,
                         "error": ""}, 1)
         rt = Runtime(store)
         rt.last_sync = {"at": "2026-09-30T07:04:20Z", "sent": 4, "error": ""}

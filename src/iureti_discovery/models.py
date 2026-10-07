@@ -53,6 +53,12 @@ class Observation:
     is_gateway: bool = False  # puerta de enlace por omisión de la sonda
     is_probe: bool = False  # la propia sonda
     virtual_net: str = ""  # interfaz virtual de la sonda por la que se ve (docker0, br-…): contenedor/VM local
+    mac_from: str = ""  # "" = caché ARP de la sonda; "snmp-arp:<ip>" = tabla ARP (SNMP) de ese router/anfitrión
+    # Contenedor o máquina virtual: {"kind": container|vm, "platform", "host_ip", "host_name", "reach",
+    # "name", "evidence", "confidence"}. reach = network (se alcanza desde la red) | host (solo desde su anfitrión)
+    virtual: dict | None = None
+    # Lo que este equipo aloja (SNMP): {"container_interfaces", "vm_interfaces", "arp": [...], "vms": [...]}
+    hosting: dict | None = None
     ttl: int | None = None
     mdns: dict | None = None  # {"host", "services", "names", "txt"}
     upnp: dict | None = None  # descripción UPnP del dispositivo raíz
@@ -73,6 +79,8 @@ class Observation:
         for name in ("mdns", "upnp", "http", "netbios"):
             if getattr(self, name):
                 src.append(name)
+        if self.mac_from.startswith("snmp-arp") or (self.virtual or {}).get("reach") == "host":
+            src.append("snmp-arp")  # visto en la tabla ARP de un router o anfitrión
         return src
 
 

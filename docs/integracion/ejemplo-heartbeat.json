@@ -1,7 +1,7 @@
 {
  "probe": {
   "id": "sonda-matriz-01",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "site": "Matriz CDMX",
   "hostname": "srv-inventario",
   "os": "Ubuntu 24.04.5 LTS",
@@ -10,8 +10,8 @@
  },
  "status": {
   "state": "idle",
-  "assets": 4,
-  "unsynced": 4,
+  "assets": 6,
+  "unsynced": 6,
   "last_scan": {
    "started_at": "2026-09-30T07:00:02Z",
    "finished_at": "2026-09-30T07:04:12Z",
@@ -19,7 +19,7 @@
     "192.168.1.0/24",
     "10.0.0.0/24"
    ],
-   "alive": 4,
+   "alive": 6,
    "new_assets": 1,
    "error": ""
   },
@@ -44,10 +44,12 @@
   "ports",
   "oui",
   "snmp",
+  "snmp-arp",
   "mdns",
   "ssdp",
   "http",
   "netbios",
+  "virtual",
   "enrich"
  ],
  "config_version": "c-2026-09-30-3",

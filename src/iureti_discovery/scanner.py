@@ -3,23 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
-
 import ipaddress
 import threading
+from dataclasses import dataclass, field
 
 import httpx
 
-from . import httpinfo, mdns, netbios, netutil, snmp, upnp
+from . import httpinfo, mdns, netbios, netutil, snmp, upnp, virtual
 from .models import Observation, utcnow
 from .netutil import CLOSED, OPEN
 from .oui import OuiDatabase
 
 # Puertos para decidir rápidamente si un host está vivo
 DISCOVERY_PORTS = [22, 80, 135, 443, 445, 3389, 8080, 9100]
-# Puertos adicionales de huella, solo en hosts vivos (62078 = iPhone/iPad)
+# Puertos adicionales de huella, solo en hosts vivos (62078 = iPhone/iPad; 2179 = Hyper-V; 2375/2376 = API Docker)
 FINGERPRINT_PORTS = [
-    21, 23, 25, 53, 88, 139, 389, 515, 554, 631, 636, 902, 1433, 2049, 3268, 3306,
+    21, 23, 25, 53, 88, 139, 389, 515, 554, 631, 636, 902, 1433, 2049, 2179, 2375, 2376, 3268, 3306,
     5060, 5432, 5480, 5985, 5986, 6379, 8006, 8443, 27017, 62078,
 ]
 
@@ -36,6 +35,7 @@ class ScanOptions:
     use_ssdp: bool = True
     use_http: bool = True
     use_netbios: bool = True
+    include_guests: bool = True  # contenedores/VMs visibles solo desde su anfitrión (tabla ARP SNMP, redes de la sonda)
 
 
 @dataclass
@@ -116,6 +116,11 @@ class Scanner:
         async with self._sem:
             if self.opts.snmp_credentials:
                 obs.snmp = await snmp.query_any(obs.ip, self.opts.snmp_credentials)
+                if obs.snmp and (cred := snmp.credential_named(self.opts.snmp_credentials, obs.snmp.credential)):
+                    try:
+                        obs.hosting = await snmp.query_hosting(obs.ip, cred, obs.snmp.sys_object_id)
+                    except Exception:  # lo opcional no tumba la observación
+                        obs.hosting = None
             if self.opts.use_netbios:
                 obs.netbios = await netbios.query(obs.ip) or None
             if self.opts.use_http:
@@ -125,6 +130,45 @@ class Scanner:
                 if desc:
                     desc["server"] = ssdp[obs.ip].get("server", "")
                 obs.upnp = desc or None
+
+    def _apply_hosting(self, observations: dict[str, Observation], target_set: set[str]) -> list[Observation]:
+        """Usa lo que los anfitriones y routers dijeron por SNMP.
+
+        - Tabla ARP en interfaces virtuales y tabla de VMs de ESXi → el invitado cuelga de ese equipo. Si no
+          se alcanzó desde la red (contenedor NAT), se da de alta como visto solo a través del anfitrión.
+        - Tabla ARP en interfaces físicas (routers, switches L3) → MAC para hosts de otras subredes, que
+          la sonda no ve por ARP: así se reconocen por MAC entre escaneos.
+        """
+        learned: dict[str, tuple[str, str]] = {}  # ip → (mac, ip del equipo que la reportó)
+        by_mac = {o.mac: o for o in observations.values() if o.mac}
+        hosts = [o for o in list(observations.values()) if o.hosting]
+        for host in hosts:
+            host_name = host.snmp.sys_name if host.snmp and host.snmp.sys_name else host.hostname
+            for entry in host.hosting.get("arp", []):
+                if not entry.get("kind"):
+                    learned.setdefault(entry["ip"], (entry["mac"], host.ip))
+                    continue
+                info = {"kind": entry["kind"], "platform": entry["platform"], "host_ip": host.ip, "host_name": host_name,
+                        "confidence": "alta", "evidence": f"tabla ARP de {host_name or host.ip} en {entry['iface']}"}
+                guest = observations.get(entry["ip"]) or by_mac.get(entry["mac"])
+                if guest is not None and guest is not host:
+                    guest.virtual = {**info, "reach": "network"}
+                elif guest is None and self.opts.include_guests and entry["ip"] not in target_set:
+                    observations[entry["ip"]] = Observation(ip=entry["ip"], mac=entry["mac"], alive_by=["snmp-arp"],
+                                                            virtual={**info, "reach": "host"})
+            for vm in host.hosting.get("vms", []):
+                for mac in vm.get("macs", []):
+                    if (guest := by_mac.get(mac)) is not None and guest is not host:
+                        guest.virtual = {"kind": "vm", "platform": "vmware", "host_ip": host.ip, "host_name": host_name,
+                                         "name": vm.get("name", ""), "reach": "network", "confidence": "alta",
+                                         "evidence": f"VM «{vm.get('name', '')}» en la tabla de VMs de {host_name or host.ip}"}
+        for o in observations.values():
+            if not o.mac and o.ip in learned:
+                o.mac, o.mac_from = learned[o.ip][0], f"snmp-arp:{learned[o.ip][1]}"
+            if o.mac and not o.vendor:
+                o.vendor = self.oui.lookup(o.mac)
+        # Los invitados nuevos no se sondearon (no se alcanzan desde la red): sin puertos ni huella
+        return list(observations.values())
 
     def _local_segment(self, ips: list[str]) -> bool:
         """mDNS y SSDP solo sirven si algún objetivo está en una red local de la sonda."""
@@ -158,7 +202,8 @@ class Scanner:
             ssdp_hosts = await self._safe_thread(self.opts.use_ssdp and local and not p.cancelled, upnp.search)
             p.done = 1
 
-            arp = netutil.read_arp_cache()
+            arp_table = netutil.read_arp_table()
+            arp = {ip: mac for ip, (mac, _iface) in arp_table.items()}
             target_set = set(ips)
             observations: dict[str, Observation] = {}
             for ip, alive_by, open_ports, ttl in found:
@@ -189,12 +234,20 @@ class Scanner:
             gateways = netutil.default_gateways()
             local_nets = netutil.local_networks()
             own = {n.address for n in local_nets}
-            virtual = [(ipaddress.ip_network(n.network), n.interface) for n in local_nets if n.virtual]
+            virtual_nets = [(ipaddress.ip_network(n.network), n.interface) for n in local_nets if n.virtual]
+            # Invitados de la propia sonda (contenedores, VMs) que cuelgan de sus redes virtuales, aunque esas
+            # redes no estén en los rangos: el anfitrión es este equipo
+            if self.opts.include_guests and not p.cancelled:
+                for ip, (mac, iface) in arp_table.items():
+                    if ip not in observations and ip not in own and any(iface == v_iface for _, v_iface in virtual_nets):
+                        observations[ip] = Observation(ip=ip, mac=mac, alive_by=["arp"])
             for ip, o in observations.items():
                 o.is_gateway, o.is_probe = ip in gateways, ip in own
                 if not o.is_probe:
                     addr = ipaddress.ip_address(ip)
-                    o.virtual_net = next((iface for net, iface in virtual if addr in net), "")
+                    o.virtual_net = next((iface for net, iface in virtual_nets if addr in net), "")
+                    if o.virtual_net:
+                        o.virtual = virtual.probe_guest(o.virtual_net)
             p.alive = len(observations)
             obs_list = list(observations.values())
 
@@ -207,6 +260,8 @@ class Scanner:
                 async with httpx.AsyncClient(verify=False, follow_redirects=False,
                                              headers={"User-Agent": "iureti-discovery"}) as http:
                     await self._gather([self._enrich(o, http, ssdp_hosts) for o in obs_list])
+                obs_list = self._apply_hosting(observations, target_set)
+                p.alive = len(observations)
 
             now = utcnow()
             for o in obs_list:

@@ -141,17 +141,48 @@ function remoteCell(a) {
   const stale = a.synced_at && a.synced_at < a.last_seen ? ` <span class="small muted" title="Hay datos más nuevos sin enviar">•</span>` : "";
   return `<span class="${cls}" title="${esc(a.remote_reason)}">${txt}</span>${stale}`;
 }
+const isVirtual = (a) => !!(a.attributes.virtual && a.attributes.virtual.kind);
+const isHost = (a) => !!(a.attributes.guests && a.attributes.guests.length) || !!(a.attributes.hosting && (a.attributes.hosting.vm_interfaces?.length || a.attributes.hosting.container_interfaces?.length || a.attributes.hosting.vms?.length));
+const PLATFORMS = { docker: "Docker", podman: "Podman", lxc: "LXC/LXD", kubernetes: "Kubernetes", kvm: "KVM/QEMU", proxmox: "Proxmox VE", xen: "Xen", virtualbox: "VirtualBox", vmware: "VMware", hyperv: "Hyper-V", parallels: "Parallels" };
+const virtLabel = (v) => `${v.kind === "vm" ? "máquina virtual" : "contenedor"}${v.platform ? " " + (PLATFORMS[v.platform] || v.platform) : ""}`;
+const hostLabel = (v) => v.host_name || v.host_ip || "";
+function virtBadge(a) {
+  const v = a.attributes.virtual;
+  if (v && v.kind) {
+    const where = hostLabel(v) ? ` · en ${hostLabel(v)}${v.confidence === "media" ? " (probable)" : ""}` : "";
+    return `<span class="badge virt" title="${esc(virtLabel(v) + where + (v.evidence ? " · " + v.evidence : ""))}">${v.kind === "vm" ? "VM" : "Contenedor"}</span>`;
+  }
+  if (isHost(a)) {
+    const n = (a.attributes.guests || []).length;
+    return `<span class="badge host" title="Aloja máquinas virtuales o contenedores">${n ? `aloja ${n}` : "anfitrión"}</span>`;
+  }
+  return "";
+}
+function virtBlock(a) {
+  const v = a.attributes.virtual, g = a.attributes.guests || [], h = a.attributes.hosting || {}, lines = [];
+  if (v && v.kind) {
+    const where = hostLabel(v) ? ` alojado en <b>${esc(hostLabel(v))}</b>${v.host_ip && v.host_ip !== hostLabel(v) ? ` (<span class="mono">${esc(v.host_ip)}</span>)` : ""}${v.confidence ? ` · confianza ${esc(v.confidence)}` : ""}` : " · anfitrión desconocido";
+    const cands = !hostLabel(v) && v.host_candidates?.length ? ` · posibles anfitriones: ${esc(v.host_candidates.map((c) => c.name).join(", "))}` : "";
+    lines.push(`<b>Virtual:</b> ${esc(virtLabel(v))}${v.name ? ` «${esc(v.name)}»` : ""}${where}${cands}${v.reach === "host" ? " · solo visible desde su anfitrión" : ""}${v.evidence ? `<span class="sub">${esc(v.evidence)}</span>` : ""}`);
+  }
+  if (g.length) lines.push(`<b>Aloja:</b> ${g.map((x) => `${esc(x.name || x.ip)}${x.name && x.ip ? ` <span class="mono muted">${esc(x.ip)}</span>` : ""} <span class="muted">(${x.kind === "vm" ? "VM" : "contenedor"})</span>`).join(", ")}`);
+  else if (isHost(a)) lines.push(`<b>Anfitrión:</b> interfaces de virtualización ${esc([...(h.vm_interfaces || []), ...(h.container_interfaces || [])].slice(0, 6).join(", "))}${h.vms?.length ? ` · ${h.vms.length} VMs por SNMP` : ""}`);
+  const m = a.attributes.merged_from || [];
+  if (m.length) lines.push(`<span class="muted">Fusionó ${m.length} duplicado(s) de escaneos anteriores: ${esc(m.map((x) => x.fingerprint).filter(Boolean).join(", "))}</span>`);
+  return lines.map((l) => `<div>${l}</div>`).join("");
+}
 function renderAssets() {
-  const q = $("#q").value.trim().toLowerCase(), ft = $("#f-type").value;
+  const q = $("#q").value.trim().toLowerCase(), ft = $("#f-type").value, fv = $("#f-virt").value;
   const rows = assets.filter((a) => (!ft || a.device_type === ft) &&
-    (!q || [a.hostname, a.vendor, a.model, a.serial, a.os, ...a.ips, ...a.macs].join(" ").toLowerCase().includes(q)));
+    (!fv || (fv === "virtual" && isVirtual(a)) || (fv === "physical" && !isVirtual(a)) || (fv === "host" && isHost(a))) &&
+    (!q || [a.hostname, a.vendor, a.model, a.serial, a.os, (a.attributes.virtual || {}).host_name, ...a.ips, ...a.macs].join(" ").toLowerCase().includes(q)));
   $("#empty").style.display = assets.length ? "none" : "block";
   $("#assets").innerHTML = rows.map((a) => {
     const row = `<tr data-id="${a.id}">
       <td><input type="checkbox" class="sel" ${selected.has(a.id) ? "checked" : ""} style="width:auto"></td>
       <td class="mono"><a href="#" class="toggle">${esc(a.ips[0] || "")}</a>${a.ips.length > 1 ? ` <span class="muted">+${a.ips.length - 1}</span>` : ""}</td>
-      <td>${esc(a.hostname)}</td>
-      <td><span class="type">${esc(TYPES[a.device_type] || a.device_type)}</span> <span class="conf">${Math.round(a.confidence * 100)}%</span></td>
+      <td>${esc(a.hostname)}${isVirtual(a) && hostLabel(a.attributes.virtual) ? `<span class="sub">en ${esc(hostLabel(a.attributes.virtual))}</span>` : ""}</td>
+      <td><span class="type">${esc(TYPES[a.device_type] || a.device_type)}</span> <span class="conf">${Math.round(a.confidence * 100)}%</span>${virtBadge(a)}</td>
       <td>${thumb(a)}${esc(a.vendor)}${a.model ? `<br><span class="muted small">${esc(a.model)}</span>` : ""}</td>
       <td class="mono">${esc(a.serial)}</td>
       <td class="mono">${esc(a.macs[0] || "")}</td>
@@ -162,6 +193,7 @@ function renderAssets() {
     const s = a.attributes.snmp || {};
     return row + `<tr class="detail"><td></td><td colspan="9">
       ${productBlock(a)}
+      ${virtBlock(a)}
       ${localBlock(a)}
       <div><b>Huella:</b> <span class="mono">${esc(a.fingerprint)}</span> · <b>Fuentes:</b> ${esc(a.sources.join(", "))} · <b>Vivo por:</b> ${esc((a.attributes.alive_by || []).join(", "))}</div>
       <div><b>Clasificación:</b> ${esc(a.reasons.join("; ") || "sin indicios")}</div>
@@ -223,6 +255,7 @@ function updateSel() { $("#delete-sel").disabled = !selected.size; $("#delete-se
 $("#sel-all").onchange = (e) => { document.querySelectorAll("#assets .sel").forEach((el) => { el.checked = e.target.checked; const id = el.closest("tr").dataset.id; e.target.checked ? selected.add(id) : selected.delete(id); }); updateSel(); };
 $("#q").oninput = renderAssets;
 $("#f-type").onchange = renderAssets;
+$("#f-virt").onchange = renderAssets;
 $("#delete-sel").onclick = async () => {
   const r = await api("/api/assets/delete", { method: "POST", body: JSON.stringify({ ids: [...selected] }) });
   toast(`${r.deleted} activos olvidados en la sonda (no afecta a iurefficient).`); selected.clear(); loadAssets();
@@ -251,7 +284,7 @@ $("#sync").onclick = async () => {
 // ---------- configuración ----------
 const SIMPLE = ["probe_id", "site", "api_url", "api_token", "concurrency", "tcp_timeout", "enrich_provider",
   "openrouter_api_key", "openrouter_model", "openrouter_web_engine", "anthropic_api_key", "anthropic_model"];
-const BOOLS = ["use_ping", "resolve_dns", "use_mdns", "use_ssdp", "use_http", "use_netbios", "enrich_enabled", "auto_sync", "auto_enrich"];
+const BOOLS = ["use_ping", "resolve_dns", "use_mdns", "use_ssdp", "use_http", "use_netbios", "include_hosted_guests", "enrich_enabled", "auto_sync", "auto_enrich"];
 async function loadSettings() {
   settings = await api("/api/settings");
   SIMPLE.forEach((k) => ($("#s-" + k).value = settings[k] ?? ""));

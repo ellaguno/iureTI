@@ -17,6 +17,12 @@ Propuesta de contrato entre la sonda y el módulo de Inventario de iurefficient.
 > `attributes` suma `product` (identificación por internet: `product_name`, `description`, `specs`,
 > `product_url`, `image_url`, `confidence`…), `announced_name`, `os_family` y `upnp_serial_decoded`.
 
+> **Cambio v0.5 (2026-10-07)**: `attributes` suma **`virtualization`** (contenedor o VM y el equipo que lo
+> aloja; es el contrato de iurefficient 1.8.0 ampliado con el anfitrión resuelto), **`guests`** (lo que
+> aloja un anfitrión), **`hosts_virtual`** (interfaces/VMs por SNMP), **`superseded_probe_asset_ids`**
+> (duplicados que este activo absorbió) y **`mac_from`**. `sources` y `scan.collectors` pueden traer
+> `snmp-arp`. Ver «Virtuales y duplicados» abajo. El catálogo `device_type` **no cambia**.
+
 ## Autenticación
 
 - Cada sonda se registra en iurefficient y recibe un **token de sonda** (por tenant/cliente).
@@ -65,6 +71,39 @@ Envía un lote de activos descubiertos. Idempotente por `batch_id`.
 }
 ```
 
+### Virtuales y duplicados (v0.5)
+
+```json
+"attributes": {
+  "virtualization": {
+    "kind": "vm", "runtime": "vmware", "label": "máquina virtual VMware", "reach": "network",
+    "name": "srv-contabilidad",
+    "evidence": "VM «srv-contabilidad» en la tabla de VMs de esx-01",
+    "host": {
+      "hostname": "esx-01", "serial": "7XQ2K93", "macs": ["00:1a:2b:00:00:40"],
+      "probe_asset_id": "9a1c…", "inventory_id": "7b0c1f2e-…", "ip": "10.0.0.40", "confidence": "alta"
+    }
+  }
+}
+```
+
+`kind`, `runtime`, `name` y `host.{hostname, serial, macs, probe_asset_id}` son el contrato que iurefficient
+1.8.0 ya consume (`discovery_service.virtualization_of`); lo demás lo añade la sonda 0.5.
+
+| Campo | Significado |
+|---|---|
+| `virtualization.kind` | `container` o `vm` |
+| `virtualization.runtime` | `docker`, `podman`, `lxc`, `kubernetes`, `kvm`, `proxmox`, `vmware`, `hyperv`, `virtualbox`, `xen`, `parallels`, `unknown` |
+| `virtualization.name` | Nombre del contenedor o de la VM en su anfitrión, si se supo (tabla de VMs de ESXi) |
+| `virtualization.reach` | `network`: se alcanza desde la red; `host`: solo existe a través de su anfitrión (contenedor en red NAT; su IP se repite entre anfitriones y **no** identifica) |
+| `virtualization.host` | El anfitrión por **identidad** (`hostname`, `serial`, `macs`: la misma regla serie > MAC > hostname), como `probe_asset_id` de esta sonda, y si ya lo tiene, su `inventory_id` (UUID). Ausente si no se decidió |
+| `virtualization.host.confidence` | `alta` (tabla ARP/VMs del anfitrión por SNMP, puentes de la sonda), `media` (probable: MAC de Hyper-V, la sonda corre en un anfitrión de ese tipo) |
+| `virtualization.host_candidates` | Si no se decidió: nombres de hipervisores de esa familia vistos en la red |
+| `guests[]` | En un anfitrión: `{probe_asset_id, name, ip, kind, platform}` de lo que aloja (iurefficient lo deriva de `host_item_id`; informativo) |
+| `hosts_virtual` | `{vm_interfaces, container_interfaces, vm_count, vm_platforms}` según SNMP |
+| `superseded_probe_asset_ids[]` | `probe_asset_id` de activos que la sonda **fusionó** en este (eran el mismo equipo visto en otro escaneo); iurefficient retira sus filas pendientes de la bandeja y, si alguna ya era un activo, este **es** ese activo |
+| `mac_from` | `snmp-arp:<ip>` cuando la MAC vino de la tabla ARP SNMP de ese router (host de otra subred) |
+
 ### Respuesta `202 Accepted`
 
 ```json
@@ -111,7 +150,7 @@ sonda que la ingesta. El primer heartbeat de un token registra la sonda («conec
     "last_sync": {"at": "…", "sent": 214, "error": ""}
   },
   "networks": [{"interface": "eth0", "network": "10.0.0.0/24"}],
-  "capabilities": ["sweep", "ports", "oui", "snmp", "mdns", "ssdp", "http", "netbios", "enrich"],
+  "capabilities": ["sweep", "ports", "oui", "snmp", "snmp-arp", "mdns", "ssdp", "http", "netbios", "virtual", "enrich"],
   "config_version": "c-2026-09-30-3",
   "acks": [{"id": "cmd-17", "status": "done", "detail": "180 hosts vivos"}]
 }
@@ -128,7 +167,7 @@ sonda que la ingesta. El primer heartbeat de un token registra la sonda («conec
   "config": {
     "targets": ["10.0.0.0/24", "10.0.10.0/24"],
     "schedule": {"interval_minutes": 1440, "window": "01:00-05:00"},
-    "collectors": {"snmp": true, "mdns": true, "ssdp": true, "http": true, "netbios": true, "ping": true, "dns": true},
+    "collectors": {"snmp": true, "mdns": true, "ssdp": true, "http": true, "netbios": true, "ping": true, "dns": true, "guests": true},
     "concurrency": 256,
     "tcp_timeout": 0.8,
     "auto_sync": true,
@@ -158,7 +197,11 @@ en modo local con su programación propia y reintenta en el siguiente ciclo.
 ## Reglas del lado de iurefficient
 
 1. **Coincidencia** con activos existentes usando la misma prioridad que la sonda:
-   serie → MAC universal → hostname.
+   serie → MAC universal → hostname → MAC local (débil).
+1b. (v0.5) Un activo con `superseded_probe_asset_ids` absorbió a otros: sus filas pendientes en la bandeja
+   se retiran y, si alguna ya era un activo, este es ese activo. Un activo con `virtualization.host` se
+   muestra como virtual «en &lt;anfitrión&gt;» y al aprobarlo nace colgado del anfitrión (`host_item_id`), que
+   se resuelve por `inventory_id`, por identidad (serie/MAC/hostname) o por `probe_asset_id` ya aprobado.
 2. Los activos nuevos **no** entran directo al inventario: llegan a una bandeja
    “Descubiertos / pendientes” para aprobación humana.
 3. Campos capturados manualmente en iurefficient (responsable, centro de costo, ubicación
@@ -182,7 +225,7 @@ antes de guardar, reconoce por SKU o serie y no pisa celdas vacías.
 | `Nombre` | hostname sin dominio; si no hay, «<tipo> <marca> <modelo> (<IP>)» |
 | `Tipo` | siempre `Hardware` |
 | `Marca` / `Modelo` / `Serie` | fabricante (OUI o sysObjectID), modelo y serie SNMP |
-| `Descripción` | resumen técnico: tipo de dispositivo, hostname, IPs, MACs, SO/firmware, ubicación SNMP, última vez visto |
+| `Descripción` | resumen técnico: tipo de dispositivo, hostname, IPs, MACs, SO/firmware, ubicación SNMP, «Virtual: … alojado en …» o «Aloja: …», última vez visto |
 | `SKU`, `Estado`, `Categoría`, `Ubicación`, `Responsable`, `Notas`, compra, garantía… | **vacías a propósito**: son datos capturados a mano en iurefficient |
 
 Limitaciones del camino manual: el importador solo reconoce activos por SKU o serie (no por

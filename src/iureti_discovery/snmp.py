@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 from dataclasses import dataclass, field
 
 from pysnmp.hlapi.v3arch.asyncio import (
@@ -13,14 +14,15 @@ from pysnmp.hlapi.v3arch.asyncio import (
     SnmpEngine,
     UdpTransportTarget,
     UsmUserData,
+    bulk_cmd,
     get_cmd,
     next_cmd,
     usmAesCfb128Protocol,
     usmAesCfb256Protocol,
     usmDESPrivProtocol,
+    usmHMAC192SHA256AuthProtocol,
     usmHMACMD5AuthProtocol,
     usmHMACSHAAuthProtocol,
-    usmHMAC192SHA256AuthProtocol,
     usmNoAuthProtocol,
     usmNoPrivProtocol,
 )
@@ -38,6 +40,12 @@ ENT_PHYSICAL_MODEL = "1.3.6.1.2.1.47.1.1.1.1.13"
 PRT_SERIAL = "1.3.6.1.2.1.43.5.1.1.17.1"  # Printer-MIB prtGeneralSerialNumber
 HR_DEVICE_DESCR_PRINTER = "1.3.6.1.2.1.25.3.2.1.3.1"
 ENT_CLASS_CHASSIS = 3
+# Anfitriones: interfaces (IF-MIB), tabla ARP (IP-MIB) y VMs de ESXi (VMWARE-VMINFO-MIB)
+IF_DESCR = "1.3.6.1.2.1.2.2.1.2"
+IP_NET_TO_MEDIA_PHYS = "1.3.6.1.2.1.4.22.1.2"  # índice: <ifIndex>.<ip>
+VMWARE_ENTERPRISE = 6876
+VMW_VM_DISPLAY_NAME = "1.3.6.1.4.1.6876.2.1.1.2"  # índice: vmIdx
+VMW_VM_MAC = "1.3.6.1.4.1.6876.2.4.1.7"  # índice: vmIdx.netIdx
 
 AUTH_PROTOCOLS = {
     "none": usmNoAuthProtocol,
@@ -148,6 +156,91 @@ async def _walk_column(target, auth, oid: str, max_rows: int = 64) -> dict[str, 
     return rows
 
 
+def _mac(value) -> str:
+    """OctetString de 6 bytes (PhysAddress) → aa:bb:cc:dd:ee:ff; '' si no es una MAC."""
+    if value is None:
+        return ""
+    raw = value.asOctets() if hasattr(value, "asOctets") else None
+    if raw is not None:
+        return ":".join(f"{b:02x}" for b in raw) if len(raw) == 6 else ""
+    text = str(value)
+    return ":".join(text[i:i + 2] for i in range(2, 14, 2)).lower() if text.startswith("0x") and len(text) == 14 else ""
+
+
+async def _walk_bulk(target, auth, oid: str, max_rows: int = 512, raw: bool = False) -> dict:
+    """Recorre una columna con GETBULK (una petición por cada 25 filas). {índice: valor}."""
+    rows: dict = {}
+    current = oid
+    while len(rows) < max_rows:
+        err_ind, err_status, _, var_binds = await bulk_cmd(
+            _engine(), auth, target, ContextData(), 0, 25, ObjectType(ObjectIdentity(current)), lexicographicMode=False
+        )
+        if err_ind or err_status or not var_binds:
+            break
+        done = False
+        for name, val in var_binds:
+            name = str(name)
+            if not name.startswith(oid + ".") or val.__class__.__name__ == "EndOfMibView":
+                done = True
+                break
+            rows[name[len(oid) + 1:]] = val if raw else _clean(val)
+            current = name
+        if done or len(var_binds) < 25:
+            break
+    return rows
+
+
+async def query_hosting(ip: str, cred: SnmpCredential, sys_object_id: str = "", timeout: float = 1.5) -> dict | None:
+    """Qué aloja este equipo, según SNMP.
+
+    {"container_interfaces": [...], "vm_interfaces": [...], "vm_platforms": [...],
+     "arp": [{"ip", "mac", "iface", "virtual": bool}], "vms": [{"name", "macs": [...]}]}
+    None si no se pudo leer nada. La tabla ARP de un router sirve además para dar MAC a hosts de
+    otras subredes (identidad), aunque el equipo no aloje nada.
+    """
+    from . import virtual
+
+    target = await UdpTransportTarget.create((ip, 161), timeout=timeout, retries=0)
+    auth = cred.auth_data()
+    try:
+        ifaces = await _walk_bulk(target, auth, IF_DESCR, max_rows=256)
+    except Exception:
+        ifaces = {}
+    kinds = {idx: virtual.interface_kind(descr) for idx, descr in ifaces.items()}
+    out: dict = {
+        "container_interfaces": sorted(d for i, d in ifaces.items() if (kinds[i] or ("",))[0] == "container"),
+        "vm_interfaces": sorted(d for i, d in ifaces.items() if (kinds[i] or ("",))[0] == "vm"),
+        "vm_platforms": sorted({k[1] for k in kinds.values() if k and k[0] == "vm"}),
+        "arp": [], "vms": [],
+    }
+    try:
+        for index, value in (await _walk_bulk(target, auth, IP_NET_TO_MEDIA_PHYS, max_rows=1024, raw=True)).items():
+            if_index, _, host_ip = index.partition(".")
+            mac = _mac(value)
+            if not mac or mac in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff") or host_ip == ip:
+                continue
+            kind = kinds.get(if_index)
+            out["arp"].append({"ip": host_ip, "mac": mac, "iface": ifaces.get(if_index, ""),
+                               "kind": kind[0] if kind else "", "platform": kind[1] if kind else ""})
+    except Exception:
+        pass
+    if re.match(rf"^\.?1\.3\.6\.1\.4\.1\.{VMWARE_ENTERPRISE}\.", sys_object_id or ""):
+        try:
+            names = await _walk_bulk(target, auth, VMW_VM_DISPLAY_NAME, max_rows=512)
+            macs = await _walk_bulk(target, auth, VMW_VM_MAC, max_rows=2048, raw=True)
+            vms = {idx: {"name": name, "macs": []} for idx, name in names.items()}
+            for index, value in macs.items():
+                vm_idx = index.split(".")[0]
+                if (mac := _mac(value)) and vm_idx in vms and mac not in vms[vm_idx]["macs"]:
+                    vms[vm_idx]["macs"].append(mac)
+            out["vms"] = list(vms.values())
+        except Exception:
+            pass
+    if not (ifaces or out["arp"] or out["vms"]):
+        return None
+    return out
+
+
 def _pick_chassis(classes: dict[str, str], values: dict[str, str]) -> str:
     for idx, cls in classes.items():
         if cls == str(ENT_CLASS_CHASSIS) and values.get(idx):
@@ -195,3 +288,7 @@ async def query_any(ip: str, creds: list[SnmpCredential], timeout: float = 1.5) 
         if info:
             return info
     return None
+
+
+def credential_named(creds: list[SnmpCredential], name: str) -> SnmpCredential | None:
+    return next((c for c in creds if c.name == name), None)

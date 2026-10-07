@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
+from . import virtual
 from .mdns import MODEL_TXT_KEYS, hint_for, txt_value
 from .models import DEVICE_TYPES, Asset
 from .netutil import is_locally_administered
@@ -166,28 +167,6 @@ def port_scores(ports: set[int], scores: dict[str, float], reasons: list[str]) -
         add("switch", 1, "Telnet")
 
 
-# Prefijos de MAC de máquinas virtuales (y Docker antiguo, 02:42:…). Docker actual asigna MACs privadas
-# aleatorias: esos contenedores se reconocen por la red virtual de la sonda (atributo virtual_net).
-VIRTUAL_MAC_PREFIXES = [
-    ("02:42:", "contenedor Docker"),
-    ("52:54:00:", "máquina virtual KVM/QEMU"),
-    ("00:16:3e:", "máquina virtual Xen"),
-    ("08:00:27:", "máquina virtual VirtualBox"),
-    ("00:50:56:", "máquina virtual VMware"),
-    ("00:0c:29:", "máquina virtual VMware"),
-    ("00:05:69:", "máquina virtual VMware"),
-    ("00:15:5d:", "máquina virtual Hyper-V"),
-]
-
-
-def virtual_kind(macs: list[str]) -> str:
-    for mac in macs:
-        for prefix, label in VIRTUAL_MAC_PREFIXES:
-            if mac.lower().startswith(prefix):
-                return label
-    return ""
-
-
 UPNP_DEVICE_TYPES = [
     ("internetgatewaydevice", "router", 5),
     ("wlanaccesspoint", "access_point", 5),
@@ -231,12 +210,35 @@ def local_source_scores(asset: Asset, scores: dict[str, float], reasons: list[st
     if asset.attributes.get("os_family") == "windows" and not ports & {88, 389, 3268}:
         add("workstation", 1, "TTL de Windows")
 
-    if iface := asset.attributes.get("virtual_net"):
-        add("server", 3, f"contenedor o VM de la sonda (red virtual {iface})")
+    hosting = asset.attributes.get("hosting") or {}
+    if hosting.get("vms"):
+        add("hypervisor", 6, f"aloja máquinas virtuales ({len(hosting['vms'])} VMs por SNMP)")
+    elif vm_ifaces := hosting.get("vm_interfaces"):
+        # Puertos de invitados (vnet/tap) = hay VMs corriendo; un puente solo (virbr0, vmbr0) = libvirt/Proxmox instalado
+        guest_ports = [i for i in vm_ifaces if i.lower().startswith(("vnet", "tap", "vif"))]
+        add("hypervisor", 5 if guest_ports else 2, f"aloja máquinas virtuales (interfaces {', '.join(vm_ifaces[:3])})")
+    if hosting.get("container_interfaces"):
+        add("server", 3, f"aloja contenedores (interfaces {', '.join(hosting['container_interfaces'][:3])})")
+    if guests := asset.attributes.get("guests"):
+        vms = sum(1 for g in guests if g.get("kind") == "vm")
+        if vms:
+            add("hypervisor", 3, f"aloja {vms} máquinas virtuales")
+        if len(guests) > vms:
+            add("server", 2, f"aloja {len(guests) - vms} contenedores")
+    if 2179 in ports:
+        add("hypervisor", 5, "Hyper-V (2179)")
+    if ports & {2375, 2376}:
+        add("server", 3, "API de Docker (2375/2376)")
+
+    v = asset.attributes.get("virtual") or {}
+    if not v.get("kind"):  # sin anotar todavía: lo que diga la MAC o la red virtual de la sonda
+        v = next((h for h in (virtual.from_mac(m) for m in asset.macs) if h), None) or (
+            virtual.probe_guest(asset.attributes["virtual_net"]) if asset.attributes.get("virtual_net") else {})
+    if v.get("kind"):
+        where = f" alojado en {virtual.host_label(v)}" if virtual.host_label(v) else ""
+        evidence = f" ({v['evidence']})" if v.get("evidence") and not where else ""
+        add("server", 3, f"{virtual.label(v)}{where}{evidence}")
         return  # una MAC privada de contenedor no sugiere un celular
-    if virtual := virtual_kind(asset.macs):
-        add("server", 3, f"{virtual} (prefijo de MAC)")
-        return
 
     private_mac = any(is_locally_administered(m) for m in asset.macs)
     if private_mac and not ports and not scores:

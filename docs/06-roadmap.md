@@ -62,10 +62,29 @@ de la sonda, iurefficient comprometido, cadena de suministro). Detalle en [05](0
 - [x] 16 pruebas de seguridad que reproducen cada ataque
 - [ ] Cifrado de secretos en reposo (keyring) — sigue pendiente
 
+## v0.5 — duplicados entre escaneos y equipos virtuales con su anfitrión (2026-10-07)
+- [x] Una observación que casa con varios activos por claves distintas los **fusiona** (eran el mismo equipo);
+      los duplicados que ya había en la base se consolidan al cargar y con `iureti-discovery consolidate`
+- [x] Se indexan todos los nombres con que se vio el equipo (DNS, sysName, NetBIOS, mDNS, nombre de VM)
+- [x] Tabla ARP del router por SNMP → MAC para hosts de otras subredes (identidad entre escaneos)
+- [x] Contenedores y VMs marcados como virtuales (`attributes.virtual`) con su **anfitrión**: puentes y redes
+      virtuales de la sonda (`bridge fdb`), tabla ARP y de VMs (ESXi) del anfitrión por SNMP, MAC de Hyper-V,
+      anfitrión probable = el equipo de la sonda; el anfitrión lista sus invitados (`guests`)
+- [x] Invitados que solo se ven desde su anfitrión (contenedor NAT) se dan de alta en el ámbito de su anfitrión
+      (opcional: `include_hosted_guests`)
+- [x] Puertos 2179 (Hyper-V), 2375/2376 (API Docker); interfaces de virtualización por SNMP → anfitrión
+- [x] Contrato: `virtual`, `guests`, `hosts_virtual`, `superseded_probe_asset_ids`, `mac_from`; UI con filtro
+      físicos/virtuales/anfitriones; 13 pruebas nuevas
+- [x] Del lado de iurefficient (1.8.1): «corre en <anfitrión>», ligar al anfitrión al aprobar, retirar los
+      pendientes de `superseded_probe_asset_ids` (ver [08](08-integracion-iurefficient.md) §8)
+- [ ] Tabla MAC de switches (BRIDGE-MIB): VM y su hipervisor comparten puerto → anfitrión sin SNMP en el host
+- [ ] Nombres de contenedores del equipo de la sonda (requiere acceso al socket de Docker/Podman; decisión de
+      seguridad pendiente)
+
 ## v2 — +4–6 semanas
 - **GLPI-Agent (adelantado de v3)**: inventario de laptops y de software instalado; el
   software se cruza con los asientos de licencia del inventario de iurefficient
-- Tablas ARP de routers y MAC de switches vía SNMP (descubrimiento de otras subredes)
+- Tablas MAC de switches vía SNMP (la tabla ARP de routers ya está en v0.5)
 - LLDP / CDP y vista de topología
 - mDNS, SSDP, NetBIOS
 - AD / LDAP

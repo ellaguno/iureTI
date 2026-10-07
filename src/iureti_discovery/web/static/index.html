@@ -72,6 +72,9 @@ td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fo
 .product h3 { margin: 0 0 4px; font-size: 15px; }
 .product ul { margin: 6px 0; padding-left: 18px; }
 .badge { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--chip); margin-left: 6px; }
+.badge.virt { border: 1px solid var(--accent); color: var(--accent); background: transparent; margin-left: 4px; }
+.badge.host { border: 1px solid var(--ok); color: var(--ok); background: transparent; margin-left: 4px; }
+.sub { display: block; font-size: 11px; color: var(--muted); }
 .notice { border-left: 3px solid var(--warn); padding: 8px 12px; background: var(--chip); border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
 </style>
 </head>
@@ -131,6 +134,12 @@ td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fo
     <div class="toolbar">
       <input type="search" id="q" placeholder="Buscar IP, nombre, MAC, fabricante…">
       <select id="f-type"><option value="">Todos los tipos</option></select>
+      <select id="f-virt" title="Contenedores y máquinas virtuales, y los equipos que los alojan">
+        <option value="">Físicos y virtuales</option>
+        <option value="virtual">Solo virtuales (VM / contenedor)</option>
+        <option value="physical">Solo físicos</option>
+        <option value="host">Anfitriones (alojan VMs o contenedores)</option>
+      </select>
       <span class="spacer"></span>
       <button class="btn" id="enrich-all" title="Identifica productos en internet (IA + búsqueda web)">Buscar en internet</button>
       <button class="btn danger" id="delete-sel" disabled>Olvidar seleccionados</button>
@@ -199,6 +208,10 @@ td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fo
       <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-use_http" style="width:auto"> Página web del equipo</label>
       <label style="flex:0 0 auto;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-use_netbios" style="width:auto"> NetBIOS</label>
     </div>
+    <div class="row" style="margin-top:10px">
+      <label style="flex:1 1 100%;display:flex;gap:6px;align-items:center;color:var(--text);font-size:14px"><input type="checkbox" id="s-include_hosted_guests" style="width:auto"> Incluir contenedores y VMs que solo se ven desde su anfitrión (redes virtuales de la sonda, tabla ARP del anfitrión por SNMP)</label>
+    </div>
+    <p class="small muted">Los contenedores y las máquinas virtuales se marcan como virtuales y se indica qué equipo los aloja: por la red virtual o los puentes de la sonda, por la tabla ARP y de VMs del anfitrión (SNMP), o como anfitrión <i>probable</i> cuando solo lo sugiere la MAC.</p>
   </div>
   <div class="card">
     <h2>Seguridad</h2>

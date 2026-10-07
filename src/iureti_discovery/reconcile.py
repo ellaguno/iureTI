@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from dataclasses import asdict
 
+from . import localhost, mdns, virtual
 from .classify import ENTERPRISES, classify, enterprise_number
-from . import localhost, mdns
 from .models import Asset, Observation
 from .netutil import is_locally_administered, normalize_mac, os_family_from_ttl
 
@@ -78,17 +78,56 @@ def identity_keys(serial: str = "", macs: list[str] = (), hostname: str = "") ->
     return keys
 
 
+def guest_scope(virtual: dict | None) -> str:
+    """Ámbito de la IP de un invitado que solo se ve desde su anfitrión (contenedor en red NAT).
+
+    172.17.0.2 existe en cada servidor con Docker: la IP solo tiene sentido junto con el anfitrión.
+    '' para los equipos que se alcanzan desde la red (su IP es única en ella).
+    """
+    v = virtual or {}
+    if v.get("reach") != "host":
+        return ""
+    return v.get("host_name") or v.get("host_ip") or ""
+
+
+def guest_key(virtual: dict | None, macs: list[str], ip: str) -> str:
+    """Clave de identidad propia de la sonda para un invitado sin identidad propia (contenedor NAT).
+
+    No forma parte del contrato de paridad con iurefficient: allá solo llega como `fingerprint`.
+    """
+    scope = guest_scope(virtual)
+    if not scope:
+        return ""
+    mac = next((normalize_mac(m) for m in macs if normalize_mac(m) and normalize_mac(m) not in JUNK_MACS), "")
+    return f"guest:{scope}/{mac or ip}"
+
+
 def asset_keys(asset: Asset) -> list[str]:
-    return identity_keys(asset.serial, asset.macs, asset.hostname)
+    keys = identity_keys(asset.serial, asset.macs, asset.hostname)
+    # Otros nombres con los que se vio el mismo equipo (NetBIOS, mDNS, sysName…): un escaneo que solo
+    # trae uno de ellos debe reconocerlo igual. Van después de las claves principales.
+    for name in asset.attributes.get("names") or []:
+        if (h := normalize_hostname(name)) and f"host:{h}" not in keys:
+            keys.append(f"host:{h}")
+    if key := guest_key(asset.attributes.get("virtual"), asset.macs, asset.ips[0] if asset.ips else ""):
+        keys.append(key)
+    return keys
 
 
 def observed_hostname(obs: Observation) -> str:
-    """DNS inverso > sysName SNMP > NetBIOS > nombre mDNS."""
+    """DNS inverso > sysName SNMP > NetBIOS > nombre mDNS > nombre de la VM en el anfitrión."""
+    return next(iter(observed_names(obs)), "")
+
+
+def observed_names(obs: Observation) -> list[str]:
+    """Todos los nombres que identifican al equipo en esta observación, por prioridad."""
+    names = []
     for name in (obs.hostname, obs.snmp.sys_name if obs.snmp else "",
-                 (obs.netbios or {}).get("name", ""), (obs.mdns or {}).get("host", "")):
-        if normalize_hostname(name):
-            return name
-    return ""
+                 (obs.netbios or {}).get("name", ""), (obs.mdns or {}).get("host", ""),
+                 (obs.virtual or {}).get("name", "")):
+        if normalize_hostname(name) and name not in names:
+            names.append(name)
+    return names
 
 
 def observed_serial(obs: Observation) -> str:
@@ -96,7 +135,14 @@ def observed_serial(obs: Observation) -> str:
 
 
 def observation_keys(obs: Observation) -> list[str]:
-    return identity_keys(observed_serial(obs), [obs.mac] if obs.mac else [], observed_hostname(obs))
+    names = observed_names(obs)
+    keys = identity_keys(observed_serial(obs), [obs.mac] if obs.mac else [], names[0] if names else "")
+    for name in names[1:]:
+        if (key := f"host:{normalize_hostname(name)}") not in keys:
+            keys.append(key)
+    if key := guest_key(obs.virtual, [obs.mac] if obs.mac else [], obs.ip):
+        keys.append(key)
+    return keys
 
 
 _GENERIC_MODEL = re.compile(r"\b(series|device|model|igd|gateway|router|unknown)\b", re.I)
@@ -142,41 +188,111 @@ def product_brand(name: str) -> str:
 
 class Reconciler:
     def __init__(self, assets: list[Asset]):
-        self.assets: dict[str, Asset] = {a.id: a for a in assets}
+        self.assets: dict[str, Asset] = {}
         self.index: dict[str, str] = {}
-        self.ip_index: dict[str, str] = {}
-        for a in assets:
-            self._index(a)
+        self.ip_index: dict[tuple[str, str], str] = {}  # (ámbito, ip) → id
+        self.removed: dict[str, str] = {}  # id de activo absorbido → id del que lo absorbió
+        # Duplicados que ya estaban en la base (reglas de identidad anteriores, nombres distintos en
+        # escaneos distintos…) se consolidan al cargar: el más antiguo se queda con todo.
+        for a in sorted(assets, key=lambda a: a.first_seen):
+            others = [self.assets[i] for i in dict.fromkeys(self.index[k] for k in asset_keys(a) if k in self.index)]
+            if others:
+                self._absorb(others[0], a)
+                self.removed[a.id] = others[0].id
+                for extra in others[1:]:
+                    self._absorb(others[0], extra)
+                    self._drop(extra, others[0].id)
+                self._index(others[0])
+            else:
+                self.assets[a.id] = a
+                self._index(a)
 
     def _index(self, asset: Asset) -> None:
         for key in asset_keys(asset):
             self.index.setdefault(key, asset.id)
+        scope = guest_scope(asset.attributes.get("virtual"))
         for ip in asset.ips:
-            self.ip_index[ip] = asset.id
+            self.ip_index[(scope, ip)] = asset.id
 
-    def _find(self, obs: Observation) -> Asset | None:
-        keys = observation_keys(obs)
-        for key in keys:
-            if key in self.index:
-                return self.assets[self.index[key]]
-        if obs.ip in self.ip_index:
-            candidate = self.assets[self.ip_index[obs.ip]]
+    def _drop(self, asset: Asset, into: str) -> None:
+        """Saca de los índices (y de la lista) un activo absorbido por otro."""
+        self.assets.pop(asset.id, None)
+        self.removed[asset.id] = into
+        for key, owner in list(self.index.items()):
+            if owner == asset.id:
+                self.index[key] = into
+        for key, owner in list(self.ip_index.items()):
+            if owner == asset.id:
+                self.ip_index[key] = into
+
+    @staticmethod
+    def _absorb(primary: Asset, other: Asset) -> None:
+        """Todo lo del duplicado pasa al activo principal; el duplicado desaparece."""
+        for field_name in ("ips", "macs"):
+            merged = getattr(primary, field_name) + [x for x in getattr(other, field_name) if x not in getattr(primary, field_name)]
+            setattr(primary, field_name, merged)
+        primary.sources = sorted(set(primary.sources) | set(other.sources))
+        primary.first_seen = min(primary.first_seen, other.first_seen) if other.first_seen else primary.first_seen
+        if other.last_seen > primary.last_seen:  # el duplicado traía datos más recientes
+            for field_name in ("hostname", "vendor", "model", "serial", "os", "location", "open_ports"):
+                if getattr(other, field_name):
+                    setattr(primary, field_name, getattr(other, field_name))
+            primary.last_seen = other.last_seen
+        else:
+            for field_name in ("hostname", "vendor", "model", "serial", "os", "location"):
+                if not getattr(primary, field_name) and getattr(other, field_name):
+                    setattr(primary, field_name, getattr(other, field_name))
+        for key, value in other.attributes.items():
+            primary.attributes.setdefault(key, value)
+        names = list(dict.fromkeys((primary.attributes.get("names") or []) + (other.attributes.get("names") or [])
+                                   + [n for n in (primary.hostname, other.hostname) if n]))
+        primary.attributes["names"] = names[:12]
+        if other.type_locked and not primary.type_locked:
+            primary.device_type, primary.type_locked = other.device_type, True
+        if not primary.inventory_id and other.inventory_id:
+            primary.inventory_id, primary.remote_status = other.inventory_id, other.remote_status
+        if other.notes and other.notes not in primary.notes:
+            primary.notes = (primary.notes + "\n" + other.notes).strip()
+        merged_from = primary.attributes.get("merged_from") or []
+        for entry in [{"id": other.id, "fingerprint": other.fingerprint}] + (other.attributes.get("merged_from") or []):
+            if entry not in merged_from:
+                merged_from.append(entry)
+        primary.attributes["merged_from"] = merged_from[:20]
+        primary.synced_at = ""  # hay que volver a enviarlo: iurefficient debe saber que absorbió a otro
+
+    def _candidates(self, obs: Observation, keys: list[str]) -> list[Asset]:
+        """Activos que esta observación reconoce, por prioridad de clave. Más de uno = duplicados."""
+        ids = list(dict.fromkeys(self.index[k] for k in keys if k in self.index))
+        owner = self.ip_index.get((guest_scope(obs.virtual), obs.ip))
+        if owner and owner not in ids:
+            candidate = self.assets[owner]
             # Observación sin identidad (p.ej. esta vez no hubo ARP): se asume el mismo equipo de esa IP.
             # Observación con identidad nueva: solo "mejora" a un activo que se conocía únicamente por IP.
             if not keys or not asset_keys(candidate):
-                return candidate
-        return None
+                ids.append(owner)
+        return [self.assets[i] for i in ids]
 
     def merge(self, obs: Observation) -> tuple[Asset, bool]:
-        """Incorpora la observación. Devuelve (activo, es_nuevo)."""
-        asset = self._find(obs)
-        is_new = asset is None
+        """Incorpora la observación. Devuelve (activo, es_nuevo).
+
+        Si la observación casa con varios activos (la MAC con uno, el nombre con otro), eran el mismo
+        equipo visto en escaneos distintos: se fusionan en el de la clave más fuerte.
+        """
+        keys = observation_keys(obs)
+        found = self._candidates(obs, keys)
+        is_new = not found
         if is_new:
             asset = Asset(first_seen=obs.observed_at)
             self.assets[asset.id] = asset
+        else:
+            asset = found[0]
+            for other in found[1:]:
+                self._absorb(asset, other)
+                self._drop(other, asset.id)
 
-        # La IP ya no pertenece a otro activo sin identidad (p.ej. DHCP)
-        prev_owner = self.ip_index.get(obs.ip)
+        # La IP ya no pertenece a otro activo (p.ej. DHCP la reasignó)
+        scope = guest_scope(obs.virtual)
+        prev_owner = self.ip_index.get((scope, obs.ip))
         if prev_owner and prev_owner != asset.id:
             other = self.assets[prev_owner]
             other.ips = [ip for ip in other.ips if ip != obs.ip]
@@ -186,6 +302,8 @@ class Reconciler:
         snmp = obs.snmp
         if hostname := observed_hostname(obs):
             asset.hostname = hostname
+        if names := observed_names(obs):
+            asset.attributes["names"] = list(dict.fromkeys(names + (asset.attributes.get("names") or [])))[:12]
         if obs.vendor:
             asset.vendor = obs.vendor
         asset.open_ports = sorted(set(obs.open_ports))
@@ -199,8 +317,15 @@ class Reconciler:
                 asset.attributes.pop(flag, None)
         if obs.virtual_net:
             asset.attributes["virtual_net"] = obs.virtual_net
+            if not obs.virtual:
+                obs.virtual = virtual.probe_guest(obs.virtual_net)
         else:
             asset.attributes.pop("virtual_net", None)
+        if obs.mac_from:
+            asset.attributes["mac_from"] = obs.mac_from
+        elif obs.mac:
+            asset.attributes.pop("mac_from", None)
+        self._merge_virtual(asset, obs)
 
         if snmp:
             asset.attributes["snmp"] = asdict(snmp)
@@ -221,6 +346,23 @@ class Reconciler:
         asset.fingerprint = keys[0] if keys else f"ip:{obs.ip}"
         self._index(asset)
         return asset, is_new
+
+    @staticmethod
+    def _merge_virtual(asset: Asset, obs: Observation) -> None:
+        """Lo virtual no deja de serlo: una observación sin evidencia conserva lo que ya se sabía;
+        una con evidencia nueva la reemplaza, sin perder el anfitrión si esta vez no se vio."""
+        if obs.virtual:
+            previous = asset.attributes.get("virtual") or {}
+            current = dict(obs.virtual)
+            if not current.get("host_ip") and not current.get("host_name"):
+                for key in ("host_ip", "host_name", "host_id", "confidence", "evidence"):
+                    if previous.get(key):
+                        current.setdefault(key, previous[key])
+            asset.attributes["virtual"] = current
+        if obs.hosting is not None:
+            asset.attributes["hosting"] = obs.hosting
+        elif obs.snmp is not None:
+            asset.attributes.pop("hosting", None)  # respondió SNMP y ya no aloja nada
 
     @staticmethod
     def _merge_local_sources(asset: Asset, obs: Observation) -> None:

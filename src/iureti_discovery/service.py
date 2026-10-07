@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import os
 
-from . import enrich
+from . import enrich, virtual
 from .classify import classify
 from .models import utcnow
 from .oui import OuiDatabase
 from .reconcile import Reconciler
-from .scanner import ScanOptions, ScanProgress, Scanner
+from .scanner import Scanner, ScanOptions, ScanProgress
 from .snmp import SnmpCredential
 from .store import Store
 from .sync import BATCH_SIZE, apply_results, build_batch, send_batch
@@ -34,6 +34,7 @@ def make_scanner(store: Store, targets: list[str], progress: ScanProgress | None
         use_ssdp=bool(s["use_ssdp"]),
         use_http=bool(s["use_http"]),
         use_netbios=bool(s["use_netbios"]),
+        include_guests=bool(s.get("include_hosted_guests", True)),
     )
     return Scanner(opts, oui=oui, progress=progress)
 
@@ -49,24 +50,49 @@ async def run_scan(store: Store, scanner: Scanner) -> dict:
             asset, is_new = rec.merge(obs)
             new_count += is_new
             touched[asset.id] = asset
-        # También se guardan activos a los que se les quitó una IP reasignada
-        store.save_assets(list(rec.assets.values()))
-        return {"observed": len(observations), "assets": len(touched), "new": new_count}
+        # Invitado ↔ anfitrión con todos los activos ya conciliados (los anfitriones pueden ser de otro escaneo)
+        assets = list(rec.assets.values())
+        virtual.annotate(assets, virtual.local_hosting(), settings_probe_name(store))
+        for a in assets:
+            if not a.type_locked and (a.attributes.get("virtual") or a.attributes.get("guests") or a.id in touched):
+                a.device_type, a.confidence, a.reasons = classify(a)
+        # Duplicados fusionados desaparecen; también se guardan activos a los que se les quitó una IP reasignada
+        if rec.removed:
+            store.delete_assets(list(rec.removed))
+        store.save_assets(assets)
+        return {"observed": len(observations), "assets": len(touched), "new": new_count, "merged": len(rec.removed)}
     finally:
         store.log_scan(scanner.progress.to_dict(), new_count)
+
+
+def settings_probe_name(store: Store) -> str:
+    import socket
+
+    return store.get_settings().get("probe_id") or socket.gethostname()
+
+
+def consolidate(store: Store) -> int:
+    """Fusiona los duplicados que ya hubiera en la base (p.ej. de reglas de identidad anteriores).
+    Devuelve cuántos activos se absorbieron."""
+    rec = Reconciler(store.list_assets())
+    if rec.removed:
+        store.delete_assets(list(rec.removed))
+        store.save_assets(list(rec.assets.values()))
+    return len(rec.removed)
 
 
 def sync_all(store: Store, only_changed: bool = False) -> dict:
     """Envía los activos a iurefficient en lotes. La aprobación ocurre allá (bandeja de descubiertos)."""
     settings = store.get_settings()
     assets = store.list_assets()
+    all_assets = {a.id: a for a in assets}
     if only_changed:
         assets = [a for a in assets if not a.synced_at or a.synced_at < a.last_seen or a.remote_status == "rejected"]
     scans = store.list_scans(1)
     summary: dict = {"sent": 0, "batches": [], "results": {}}
     for i in range(0, len(assets), BATCH_SIZE):
         chunk = assets[i : i + BATCH_SIZE]
-        batch = build_batch(chunk, settings, scans[0] if scans else None)
+        batch = build_batch(chunk, settings, scans[0] if scans else None, all_assets)
         response = send_batch(batch, settings["api_url"], settings["api_token"])
         changed = apply_results(chunk, response)
         store.save_assets(changed)

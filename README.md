@@ -57,7 +57,13 @@
 - **Discovery:** ping/TCP sweep and ARP, open ports, SNMP v2c/v3 (read-only, each credential can be limited
   to its subnets), mDNS, UPnP/SSDP, NetBIOS, the device's own web page and the IEEE OUI vendor database.
 - **Classification and deduplication:** device type with confidence and reasons; the same device seen by
-  several sources (serial, MAC, hostname) becomes one asset.
+  several sources or in several scans (serial, MAC, hostname, any name it announced) becomes one asset, and
+  duplicates that slipped through earlier scans are merged. Remote-subnet hosts get their MAC from the
+  router's ARP table (SNMP), so they are recognized across scans too.
+- **Containers and virtual machines, with their host:** Docker/Podman/LXC containers and KVM, Proxmox,
+  VMware, Hyper-V, VirtualBox or Xen VMs are flagged as virtual and linked to the physical machine that
+  runs them: the probe's own bridges, the host's ARP and VM tables over SNMP, the Hyper-V MAC scheme, or
+  the probe's host as the likely one. The host lists its guests.
 - **Local web interface** (`iureti-discovery serve`, `http://127.0.0.1:8765/`) and a **CLI** for scanning,
   exporting and sending.
 - **Iurefficient integration:** send to the inventory's ingest API, or export a CSV for

@@ -48,6 +48,8 @@ DEFAULT_SETTINGS = {
     "use_ssdp": True,
     "use_http": True,
     "use_netbios": True,
+    # Contenedores y VMs que solo se ven desde su anfitrión (tabla ARP por SNMP, redes virtuales de la sonda)
+    "include_hosted_guests": True,
     # Búsqueda en internet. Desactivada hasta que se configure.
     "enrich_enabled": False,
     "enrich_provider": "openrouter",  # openrouter | anthropic

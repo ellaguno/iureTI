@@ -46,6 +46,9 @@ Solo alcanzan el segmento L2 de la sonda (multicast), salvo NetBIOS y HTTP.
 | **TTL del ping** | Familia de SO: 64 Linux/Android/macOS/iOS, 128 Windows, 255 red | |
 | **Puerto 62078** | Servicio de sincronización de iPhone/iPad | |
 | **La propia sonda** | `/sys/class/dmi/id` y `/etc/os-release` sin root | ThinkPad P52, Ubuntu 24.04 |
+| **Puentes de la sonda (v0.5)** | `ip link` y `bridge fdb show` sin root: interfaces de virtualización (docker0, br-, veth, virbr, vnet, tap, vmbr) y MAC aprendida en cada puerto → contenedores y VMs **alojados en el equipo de la sonda** | contenedor 172.19.0.12 «cuelga del puerto vethbf52198» |
+| **Prefijo de MAC (v0.5)** | 02:42 Docker, 52:54:00 KVM, bc:24:11 Proxmox, 00:50:56 / 00:0c:29 VMware, 00:15:5d Hyper-V, 08:00:27 VirtualBox, 00:16:3e Xen → es virtual. En Hyper-V los octetos 4–5 son los últimos de la IP del anfitrión → anfitrión *probable* | |
+| **Puertos de anfitrión (v0.5)** | 2179 Hyper-V, 8006 Proxmox, 902 ESXi, 2375/2376 API de Docker | |
 
 Notas de campo:
 - Un teléfono **en reposo** contesta mDNS de forma intermitente (con ahorro de energía del Wi-Fi). Por eso la
@@ -68,8 +71,9 @@ Versiones: v2c (community) y v3 (usuario + auth SHA/MD5 + priv AES/DES). Solo le
 | ENTITY-MIB `entPhysicalSerialNum` 1.3.6.1.2.1.47.1.1.1.1.11 | Número de serie |
 | ENTITY-MIB `entPhysicalModelName` 1.3.6.1.2.1.47.1.1.1.1.13 | Modelo |
 | Printer-MIB `prtMarkerSuppliesLevel` | Niveles de consumibles |
-| IF-MIB | Interfaces, MACs, velocidades |
-| IP-MIB `ipNetToMediaTable` (v2) | **Tabla ARP del router** → descubre hosts de otras subredes |
+| IF-MIB `ifDescr` 1.3.6.1.2.1.2.2.1.2 (v0.5) | Interfaces: las de virtualización (docker0, veth, virbr, vnet, tap, vmbr…) delatan a un **anfitrión** |
+| IP-MIB `ipNetToMediaPhysAddress` 1.3.6.1.2.1.4.22.1.2 (v0.5) | **Tabla ARP**: en un router da la MAC de hosts de otras subredes (identidad entre escaneos); en un anfitrión, las entradas de sus interfaces virtuales son sus **contenedores y VMs** (también los de red NAT, que la sonda no alcanza) |
+| VMWARE-VMINFO-MIB `vmwVmDisplayName` 1.3.6.1.4.1.6876.2.1.1.2 y `vmwVmMAC` …2.4.1.7 (v0.5) | Nombre y MAC de cada **VM de un ESXi** → la VM vista en la red se liga a su hipervisor |
 | BRIDGE-MIB / Q-BRIDGE `dot1qTpFdbTable` (v2) | **Tabla MAC del switch** → qué MAC en qué puerto |
 | LLDP-MIB / CISCO-CDP-MIB (v2) | **Vecinos** → topología |
 

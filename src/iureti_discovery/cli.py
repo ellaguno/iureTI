@@ -1,4 +1,4 @@
-"""Línea de comandos: iureti-discovery {serve,scan,networks,export,sync,oui-update}."""
+"""Línea de comandos: iureti-discovery {serve,enroll,status,schedule,networks,scan,export,sync,enrich,consolidate,oui-update}."""
 
 from __future__ import annotations
 
@@ -168,6 +168,10 @@ def cmd_scan(args) -> None:
     print(f"{'IP':<16}{'Tipo':<22}{'Nombre':<28}{'Fabricante':<28}{'Puertos'}")
     for a in rows:
         kind = f"{DEVICE_TYPE_LABELS.get(a.device_type, a.device_type)} {round(a.confidence * 100)}%"
+        if v := a.attributes.get("virtual"):
+            kind += f" [{'VM' if v.get('kind') == 'vm' else 'contenedor'}{' en ' + (v.get('host_name') or v.get('host_ip')) if v.get('host_name') or v.get('host_ip') else ''}]"
+        elif a.attributes.get("guests"):
+            kind += f" [aloja {len(a.attributes['guests'])}]"
         vendor = (a.vendor or "")[:26]
         print(f"{a.ips[0]:<16}{kind:<22}{(a.hostname or '')[:26]:<28}{vendor:<28}{' '.join(map(str, a.open_ports))}")
 
@@ -225,6 +229,14 @@ def cmd_enrich(args) -> None:
         found = e.get("product_name") if e.get("identified") else "no identificado"
         extra = " (caché)" if r["cached"] else (f" ${e['cost_usd']:.4f}" if e.get("cost_usd") is not None else "")
         print(f"{label}  → {found} [{e.get('confidence')}]{' 📷' if e.get('image_file') else ''}{extra}")
+
+
+def cmd_consolidate(args) -> None:
+    """Fusiona los duplicados que ya hubiera en la base (también ocurre solo en cada escaneo)."""
+    store = Store(args.db)
+    before = len(store.list_assets())
+    merged = service.consolidate(store)
+    print(f"{merged} duplicado(s) fusionado(s): {before} → {before - merged} activos")
 
 
 def cmd_oui_update(args) -> None:
@@ -293,6 +305,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--provider", choices=["openrouter", "anthropic"], help="Proveedor (se guarda en la configuración)")
     p.add_argument("--model", help="Modelo del proveedor (se guarda), p.ej. google/gemini-3.1-flash-lite")
     p.set_defaults(func=cmd_enrich)
+
+    p = sub.add_parser("consolidate", help="Fusiona activos duplicados (el mismo equipo visto en varios escaneos)")
+    p.set_defaults(func=cmd_consolidate)
 
     p = sub.add_parser("oui-update", help="Descarga la base de fabricantes (IEEE)")
     p.set_defaults(func=cmd_oui_update)

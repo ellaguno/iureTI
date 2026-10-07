@@ -55,7 +55,13 @@
   puede limitar a sus subredes), mDNS, UPnP/SSDP, NetBIOS, la página web del equipo y la base de fabricantes
   OUI del IEEE.
 - **Clasificación y deduplicación:** tipo de equipo con confianza y motivos; el mismo equipo visto por varias
-  fuentes (serie, MAC, hostname) queda como un solo activo.
+  fuentes o en varios escaneos (serie, MAC, hostname, cualquier nombre que anuncie) es un solo activo, y los
+  duplicados que se colaron en escaneos anteriores se fusionan. Los hosts de otras subredes reciben su MAC de
+  la tabla ARP del router (SNMP), así también se reconocen entre escaneos.
+- **Contenedores y máquinas virtuales, con su anfitrión:** los contenedores Docker/Podman/LXC y las VMs de KVM,
+  Proxmox, VMware, Hyper-V, VirtualBox o Xen se marcan como virtuales y se ligan al equipo real que los
+  ejecuta: los puentes de la propia sonda, la tabla ARP y de VMs del anfitrión por SNMP, el esquema de MAC de
+  Hyper-V, o el equipo de la sonda como anfitrión probable. El anfitrión muestra sus invitados.
 - **Interfaz web local** (`iureti-discovery serve`, `http://127.0.0.1:8765/`) y **línea de comandos** para
   escanear, exportar y enviar.
 - **Integración con iurefficient:** envío a la API de ingesta del inventario, o exportación a CSV para

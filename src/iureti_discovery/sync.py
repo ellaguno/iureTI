@@ -12,7 +12,7 @@ import uuid
 
 import httpx
 
-from . import __version__
+from . import __version__, virtual
 from .models import Asset, utcnow
 
 INGEST_PATH = "/api/plugins/inventory/discovery/batches"
@@ -47,7 +47,8 @@ DEVICE_TYPE_LABELS = {
 }
 
 
-def asset_payload(asset: Asset) -> dict:
+def asset_payload(asset: Asset, by_id: dict[str, Asset] | None = None) -> dict:
+    """Un activo en el contrato de ingesta. `by_id` (todos los activos) resuelve el anfitrión de los virtuales."""
     snmp = asset.attributes.get("snmp") or {}
     attributes = {k: v for k, v in {
         "snmp_sys_object_id": snmp.get("sys_object_id", ""),
@@ -58,6 +59,12 @@ def asset_payload(asset: Asset) -> dict:
         "os_family": asset.attributes.get("os_family", ""),
         "upnp_serial_decoded": (asset.attributes.get("upnp") or {}).get("serialDecoded", ""),
         "product": product_summary(asset),
+        "virtualization": virtual_summary(asset, by_id or {}),
+        "guests": [{"probe_asset_id": g["id"], "name": g.get("name", ""), "ip": g.get("ip", ""), "kind": g.get("kind", ""),
+                    "platform": g.get("platform", "")} for g in asset.attributes.get("guests") or []],
+        "hosts_virtual": hosting_summary(asset),
+        "superseded_probe_asset_ids": [m["id"] for m in asset.attributes.get("merged_from") or []],
+        "mac_from": asset.attributes.get("mac_from", ""),
     }.items() if v}
     return {
         "probe_asset_id": asset.id,
@@ -80,6 +87,39 @@ def asset_payload(asset: Asset) -> dict:
     }
 
 
+def virtual_summary(asset: Asset, by_id: dict[str, Asset]) -> dict:
+    """Contenedor o VM y el equipo que lo aloja, en el contrato de iurefficient 1.8.0
+    (`attributes.virtualization`: kind, runtime, name, host{hostname, serial, macs, probe_asset_id}),
+    más lo que la sonda 0.5 sabe del anfitrión: su UUID en iurefficient, IP, confianza y evidencia."""
+    v = asset.attributes.get("virtual") or {}
+    if not v.get("kind"):
+        return {}
+    host = by_id.get(v.get("host_id", ""))
+    host_info = {
+        "hostname": (host.hostname if host else "") or v.get("host_name", ""),
+        "serial": host.serial if host else "",
+        "macs": [m for m in (host.macs if host else []) if m],
+        "probe_asset_id": v.get("host_id", ""),
+        "inventory_id": host.inventory_id if host else "",
+        "ip": v.get("host_ip", "") or (host.ips[0] if host and host.ips else ""),
+        "confidence": v.get("confidence", ""),
+    }
+    out = {
+        "kind": v["kind"], "runtime": v.get("platform") or "unknown", "name": v.get("name", ""),
+        "label": virtual.label(v), "reach": v.get("reach", "network"), "evidence": v.get("evidence", ""),
+        "host": {k: x for k, x in host_info.items() if x},
+        "host_candidates": [c.get("name", "") for c in v.get("host_candidates") or []],
+    }
+    return {k: x for k, x in out.items() if x}
+
+
+def hosting_summary(asset: Asset) -> dict:
+    h = asset.attributes.get("hosting") or {}
+    out = {"vm_interfaces": h.get("vm_interfaces") or [], "container_interfaces": h.get("container_interfaces") or [],
+           "vm_count": len(h.get("vms") or []), "vm_platforms": h.get("vm_platforms") or []}
+    return {k: x for k, x in out.items() if x}
+
+
 def product_summary(asset: Asset) -> dict:
     """Identificación por internet (si la hubo), sin la huella enviada ni rutas locales."""
     e = asset.attributes.get("enrichment") or {}
@@ -94,8 +134,11 @@ def clean_vendor(vendor: str) -> str:
     return "" if vendor.startswith("(") else vendor  # «(MAC aleatoria/local)» no es un fabricante
 
 
-def build_batch(assets: list[Asset], settings: dict, last_scan: dict | None = None) -> dict:
+def build_batch(assets: list[Asset], settings: dict, last_scan: dict | None = None,
+                all_assets: dict[str, Asset] | None = None) -> dict:
+    """`all_assets` (id → activo, todos) permite citar al anfitrión de una VM aunque vaya en otro lote."""
     scan = last_scan or {}
+    all_assets = all_assets or {a.id: a for a in assets}
     return {
         "batch_id": str(uuid.uuid4()),
         "probe": {
@@ -109,7 +152,7 @@ def build_batch(assets: list[Asset], settings: dict, last_scan: dict | None = No
             "targets": scan.get("targets", []),
             "collectors": sorted({s for a in assets for s in a.sources}),
         },
-        "assets": [asset_payload(a) for a in assets],
+        "assets": [asset_payload(a, all_assets) for a in assets],
     }
 
 
@@ -139,8 +182,32 @@ def technical_description(asset: Asset) -> str:
         parts.append(f"SO/firmware: {asset.os}")
     if asset.location:
         parts.append(f"Ubicación SNMP: {asset.location}")
+    if text := virtual_description(asset):
+        parts.append(text)
     parts.append(f"Descubierto por iureTI Discovery; visto por última vez {asset.last_seen}")
     return " · ".join(parts)
+
+
+def virtual_description(asset: Asset) -> str:
+    """«Virtual: máquina virtual VMware alojada en esx-01 (10.0.0.5)» o «Aloja: 3 contenedores, 1 máquina virtual»."""
+    v = asset.attributes.get("virtual") or {}
+    if v.get("kind"):
+        where = virtual.host_label(v)
+        ip = f" ({v['host_ip']})" if v.get("host_ip") and v.get("host_ip") != where else ""
+        text = f"Virtual: {virtual.label(v)}"
+        if where:
+            text += f" alojado en {where}{ip}" + (" (probable)" if v.get("confidence") == "media" else "")
+        elif v.get("host_candidates"):
+            text += " · posibles anfitriones: " + ", ".join(c.get("name", "") for c in v["host_candidates"])
+        return text
+    guests = asset.attributes.get("guests") or []
+    if guests:
+        counts = {}
+        for g in guests:
+            counts[g.get("kind", "")] = counts.get(g.get("kind", ""), 0) + 1
+        words = {"container": ("contenedor", "contenedores"), "vm": ("máquina virtual", "máquinas virtuales")}
+        return "Aloja: " + ", ".join(f"{n} {words.get(k, (k, k))[0 if n == 1 else 1]}" for k, n in counts.items())
+    return ""
 
 
 def csv_safe(value: str) -> str:

@@ -1,7 +1,7 @@
 # 08 — Integración con iurefficient (entrega para el módulo de inventario)
 
 **Para**: quien desarrolla `iur-inventory` en iurefficient (`Colaborador especialista/instance/backend/plugins/iur_inventory`).
-**Fecha**: 2026-09-30 · **Sonda**: iureTI Discovery 0.3.1 · **Inventario revisado**: iur-inventory 1.3.0
+**Fecha**: 2026-09-30, actualizado 2026-10-07 (§8) · **Sonda**: iureTI Discovery 0.5.0 · **Inventario revisado**: iur-inventory 1.3.0 (discovery_service.py con bandeja D3 y clave débil 1.7.1)
 
 Este documento dice **qué falta del lado de iurefficient** para que la sonda funcione completa. Se
 escribió leyendo el código actual del plugin: lo que ya está bien no se repite, solo se lista.
@@ -263,3 +263,64 @@ también estos y la foto.
   extremos, la sonda los ignorará (y lo registra). Conviene que la pantalla valide igual y muestre las
   `networks` del heartbeat como sugerencia (ya excluyen interfaces virtuales).
 - **Heartbeat**: sin cambios de forma respecto a [04](04-api-ingesta.md).
+
+## 8. Contenedores, VMs y duplicados fusionados (sonda 0.5.0 ↔ iurefficient 1.8.x)
+
+iurefficient 1.8.0 ya recibe contenedores y VMs como **parte de un equipo real** (`virtual_kind`,
+`virtual_runtime`, `host_item_id`; la lista los esconde, la ficha del host los lista) con el contrato
+`attributes.virtualization`. La sonda 0.5.0 **lo manda** con ese mismo contrato y lo amplía; además fusiona
+duplicados y lo avisa. Detalle del contrato en [04, «Virtuales y duplicados»](04-api-ingesta.md).
+
+### 8.1 Lo que la sonda manda (0.5.0)
+
+```json
+"attributes": {
+  "virtualization": {
+    "kind": "vm", "runtime": "vmware", "name": "srv-contabilidad", "reach": "network",
+    "label": "máquina virtual VMware", "evidence": "VM «srv-contabilidad» en la tabla de VMs de esx-01",
+    "host": {"hostname": "esx-01", "serial": "7XQ2K93", "macs": ["00:1a:2b:00:00:40"],
+             "probe_asset_id": "9a1c…", "inventory_id": "7b0c1f2e-…", "ip": "10.0.0.40", "confidence": "alta"}
+  },
+  "guests": [{"probe_asset_id": "…", "name": "srv-contabilidad", "ip": "10.0.0.31", "kind": "vm", "platform": "vmware"}],
+  "hosts_virtual": {"vm_count": 1},
+  "superseded_probe_asset_ids": ["<probe_asset_id de un duplicado que absorbió>"],
+  "mac_from": "snmp-arp:10.0.1.1"
+}
+```
+
+De dónde sale (por confianza): tabla ARP del anfitrión en interfaces virtuales y tabla de VMs de ESXi
+(SNMP), puentes y redes virtuales del equipo de la sonda (`bridge fdb`), MAC dinámica de Hyper-V (codifica
+la IP del anfitrión; *media*), y el equipo de la sonda como anfitrión *probable* cuando solo lo sugiere el
+prefijo de MAC y la sonda corre en un anfitrión de ese tipo. Sin evidencia, `host` no viene y
+`host_candidates` lista los hipervisores de esa familia vistos en la red. `virtual_net` (≤0.4.2) se sigue
+mandando por compatibilidad.
+
+### 8.2 Lo que ya hace iurefficient 1.8.0 (no tocar)
+
+- `virtualization_of`: lee `kind`, `runtime`, `name`, `host.{hostname, serial, macs, probe_asset_id}`.
+- `resolve_virtual_host`: el anfitrión por identidad (serie > MAC > hostname) o, con `virtual_net`, el equipo
+  de la sonda por el hostname del heartbeat.
+- Al aprobar: nace `virtual_kind`/`virtual_runtime` y `host_item_id` si el anfitrión está inventariado;
+  `suggested_name` prefiere `virtualization.name`.
+
+### 8.3 Lo que añadió iurefficient 1.8.1 (hecho el 2026-10-07; smoke 48/48 con el `ejemplo-lote.json` real)
+
+| Qué | Dónde |
+|---|---|
+| Resolver el anfitrión también por `host.inventory_id` (UUID) y por `host.probe_asset_id` cuando ese pendiente ya se aprobó/ligó (`InventoryDiscovered.payload.probe_asset_id` → `item_id`) | `resolve_virtual_host` |
+| Un activo **ya inventariado** (`matched`) que llega marcado como virtual: rellenar `virtual_kind`, `virtual_runtime` y `host_item_id` **si estaban vacíos** (misma regla que serie/marca/modelo) | `_update_existing` |
+| `superseded_probe_asset_ids`: retirar de la bandeja los pendientes de esa sonda con esos `probe_asset_id`; si alguno ya era `approved`/`linked`, el activo que llega **es** ese `item` (tratarlo como `matched`) | `ingest_batch` |
+| Bandeja: si el anfitrión no está inventariado pero la sonda lo nombró, decir «corre en esx-01 (aún no inventariado)» y la confianza (`media` = probable) | `DiscoveredInbox.tsx`, `discovery_hints` |
+| `runtime` suma `kubernetes` y `parallels` al catálogo | `VIRTUAL_RUNTIMES` |
+| `reach == "host"`: la IP de un contenedor NAT se repite entre anfitriones; no se usa como pista de duplicado | (la bandeja no busca por IP) |
+
+### 8.4 Pruebas de aceptación
+
+5. **Fusión**: lote con dos activos del mismo equipo (uno solo con MAC, otro solo con nombre) → dos
+   `created_pending`. Luego el activo fusionado con `superseded_probe_asset_ids` → el pendiente absorbido
+   desaparece de la bandeja y queda uno solo.
+6. **Virtual**: `ejemplo-lote.json` trae un ESXi (`esx-01`, con `guests`) y una VM (`srv-contabilidad`, con
+   `virtualization.host`). En la bandeja la VM se ve como «VM · vmware · corre en esx-01»; al aprobar ambos,
+   la VM queda con `host_item_id` del ESXi y la ficha del ESXi la lista.
+7. **Matched**: un servidor ya inventariado que llega con `virtualization` queda `virtual_kind = vm` y su
+   `host_item_id` si el anfitrión existe; un `virtual_kind` puesto a mano no se pisa.

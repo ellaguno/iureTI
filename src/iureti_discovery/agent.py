@@ -22,9 +22,10 @@ from .sync import SyncError
 log = logging.getLogger("iureti.agent")
 HEARTBEAT_PATH = "/api/plugins/inventory/discovery/heartbeat"
 TICK_SECONDS = 30
-CAPABILITIES = ["sweep", "ports", "oui", "snmp", "mdns", "ssdp", "http", "netbios", "enrich"]
+CAPABILITIES = ["sweep", "ports", "oui", "snmp", "snmp-arp", "mdns", "ssdp", "http", "netbios", "virtual", "enrich"]
 COLLECTOR_SETTINGS = {"snmp": None, "mdns": "use_mdns", "ssdp": "use_ssdp", "http": "use_http",
-                      "netbios": "use_netbios", "ping": "use_ping", "dns": "resolve_dns"}
+                      "netbios": "use_netbios", "ping": "use_ping", "dns": "resolve_dns",
+                      "guests": "include_hosted_guests"}
 
 
 def parse_window(window: str) -> tuple[int, int] | None:
