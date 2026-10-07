@@ -1,5 +1,5 @@
 {
- "_origen": "Generado con las funciones de iureTI 0.4.1 (reconcile.py / netutil.py / models.py) el 2026-09-30 por scripts/export_integration_files.py. Contrato de paridad: el inventario debe dar lo mismo.",
+ "_origen": "Generado con las funciones de iureTI 0.4.2 (reconcile.py / netutil.py / models.py) el 2026-10-07 por scripts/export_integration_files.py. Contrato de paridad: el inventario debe dar lo mismo.",
  "device_types": [
   "workstation",
   "laptop",
@@ -136,6 +136,16 @@
    "96:9e:f1:11:4d:33",
    "96:9e:f1:11:4d:33",
    true
+  ],
+  [
+   "7a:7a:6b:63:3a:c4",
+   "7a:7a:6b:63:3a:c4",
+   true
+  ],
+  [
+   "02:42:ac:11:00:02",
+   "02:42:ac:11:00:02",
+   true
   ]
  ],
  "hostname": [
@@ -182,6 +192,22 @@
   [
    "srv-contabilidad.corp.local",
    "srv-contabilidad"
+  ],
+  [
+   "MAC-4C0ED6",
+   ""
+  ],
+  [
+   "MAC-4C0ED6.local",
+   ""
+  ],
+  [
+   "MacBook-Air-de-Sofia",
+   "macbook-air-de-sofia"
+  ],
+  [
+   "mac-mini",
+   "mac-mini"
   ]
  ],
  "keys": [
@@ -197,7 +223,8 @@
    [
     "serial:5CD1234XYZ",
     "mac:00:1a:2b:3c:4d:5e",
-    "host:pc-ana"
+    "host:pc-ana",
+    "localmac:da:a1:19:00:00:01"
    ]
   ],
   [
@@ -229,7 +256,8 @@
     "192.168.0.2"
    ],
    [
-    "serial:SN1"
+    "serial:SN1",
+    "localmac:aa:bb:cc:dd:ee:ff"
    ]
   ],
   [
@@ -266,7 +294,8 @@
     "Android_9XP64ZT9"
    ],
    [
-    "host:android_9xp64zt9"
+    "host:android_9xp64zt9",
+    "localmac:96:9e:f1:11:4d:33"
    ]
   ],
   [
@@ -281,6 +310,41 @@
     "serial:485754436371E3B5",
     "mac:b0:a4:f0:4a:1b:ae"
    ]
+  ],
+  [
+   [
+    "",
+    [
+     "7a:7a:6b:63:3a:c4"
+    ],
+    "MAC-4C0ED6"
+   ],
+   [
+    "localmac:7a:7a:6b:63:3a:c4"
+   ]
+  ],
+  [
+   [
+    "",
+    [
+     "7a:7a:6b:63:3a:c4"
+    ],
+    "MacBook-Air-de-Sofia"
+   ],
+   [
+    "host:macbook-air-de-sofia",
+    "localmac:7a:7a:6b:63:3a:c4"
+   ]
+  ],
+  [
+   [
+    "",
+    [
+     "02:42:ac:11:00:02"
+    ],
+    ""
+   ],
+   []
   ]
  ]
 }

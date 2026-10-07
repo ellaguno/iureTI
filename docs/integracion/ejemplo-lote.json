@@ -2,7 +2,7 @@
  "batch_id": "0d6c3b1e-8f0a-4a57-9b7e-2a0c9c1e4f11",
  "probe": {
   "id": "sonda-matriz-01",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "site": "Matriz CDMX"
  },
  "scan": {
@@ -24,7 +24,7 @@
  },
  "assets": [
   {
-   "probe_asset_id": "f3d3e141fbbc47cc9d9d2d60ead9d458",
+   "probe_asset_id": "d045774c6226430a84f739e876e8e88a",
    "fingerprint": "serial:485754436371E3B5",
    "device_type": "router",
    "confidence": 0.95,
@@ -85,7 +85,7 @@
    }
   },
   {
-   "probe_asset_id": "d76594de7af44e8ba1cef098e199adb5",
+   "probe_asset_id": "2f0391feb215455c9c48dc3f26af2998",
    "fingerprint": "host:android_9xp64zt9",
    "device_type": "mobile",
    "confidence": 0.93,
@@ -120,7 +120,7 @@
    }
   },
   {
-   "probe_asset_id": "50dffe457983428da024d406aedd6ed6",
+   "probe_asset_id": "07c2dc9e552d4ec69688b38614fb9465",
    "fingerprint": "serial:FCW2233L0AB",
    "device_type": "switch",
    "confidence": 0.8,
@@ -160,7 +160,7 @@
    }
   },
   {
-   "probe_asset_id": "76cfc397ed51440c890fa0e027c7b525",
+   "probe_asset_id": "a334e7d0cfa44ea8978245cb098b6727",
    "fingerprint": "mac:30:05:5c:00:00:04",
    "device_type": "printer",
    "confidence": 1.0,

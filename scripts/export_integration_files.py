@@ -29,9 +29,10 @@ OUT = Path(__file__).resolve().parent.parent / "docs" / "integracion"
 SERIALS = ["To be filled by O.E.M.", "000000", " fcw2233l0ab ", "N/A", "xxx", "System Serial Number", "5CD1234XYZ",
            "", None, "-----", "0123456789", "abc 123", "Default string", "485754436371E3B5"]
 MACS = ["00-1A-2B-3C-4D-5E", "bad", "da:a1:19:00:00:01", "001A.2B3C.4D5E", "AA:BB:CC:DD:EE:FF", "02:00:00:00:00:01",
-        "", None, "00:1a:2b:3c:4d:5e:ff", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff", "96:9e:f1:11:4d:33"]
+        "", None, "00:1a:2b:3c:4d:5e:ff", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff", "96:9e:f1:11:4d:33", "7a:7a:6b:63:3a:c4", "02:42:ac:11:00:02"]
 HOSTNAMES = ["PC-ANA.corp.local", "192.168.1.10", "SW-CORE-01.", "", "  Laptop01  ", None, "10.0.0.1.",
-             "_gateway", "_outbound", "Android_9XP64ZT9", "srv-contabilidad.corp.local"]
+             "_gateway", "_outbound", "Android_9XP64ZT9", "srv-contabilidad.corp.local",
+             "MAC-4C0ED6", "MAC-4C0ED6.local", "MacBook-Air-de-Sofia", "mac-mini"]
 KEYS = [
     ["5CD1234XYZ", ["00:1a:2b:3c:4d:5e", "da:a1:19:00:00:01"], "pc-ana.corp"],
     ["n/a", [], "PC-X"],
@@ -41,6 +42,10 @@ KEYS = [
     ["", ["00:00:00:00:00:00", "00-1A-2B-3C-4D-5E"], "PC-B"],
     ["", ["96:9e:f1:11:4d:33"], "Android_9XP64ZT9"],
     ["485754436371E3B5", ["b0:a4:f0:4a:1b:ae"], ""],
+    # 0.4.2: la MAC privada es clave DÉBIL (al final) y el NetBIOS sintético de macOS no identifica
+    ["", ["7a:7a:6b:63:3a:c4"], "MAC-4C0ED6"],
+    ["", ["7a:7a:6b:63:3a:c4"], "MacBook-Air-de-Sofia"],
+    ["", ["02:42:ac:11:00:02"], ""],
 ]
 
 

@@ -14,6 +14,17 @@ from .netutil import is_locally_administered, normalize_mac, os_family_from_ttl
 # y broadcast. Misma regla que iurefficient (plugins/iur_inventory/identity.py).
 JUNK_MACS = {"00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"}
 
+# MACs localmente administradas que NO son aleatorias sino derivadas de otra cosa, y por eso
+# se repiten entre equipos distintos: Docker forma 02:42:<ip del contenedor>, así que dos
+# contenedores con la misma IP de puente en hosts distintos comparten MAC. Esas no sirven ni
+# como clave débil. Misma lista que iurefficient (identity.py).
+DETERMINISTIC_LOCAL_MAC_PREFIXES = ("02:42:",)
+
+# Nombre sintético que macOS anuncia por NetBIOS cuando el nombre real no cabe en SMB
+# («MacBook-Air-de-Sofía» → «MAC-4C0ED6», con el final de la MAC de fábrica). Cambia de una
+# corrida a otra según conteste NetBIOS o no, así que no identifica: visto duplicar una Mac.
+_SYNTHETIC_HOSTNAME = re.compile(r"mac-[0-9a-f]{6}")
+
 JUNK_SERIALS = {
     "", "0", "00000000", "none", "n/a", "na", "unknown", "default string", "not specified",
     "to be filled by o.e.m.", "system serial number", "0123456789", "123456789", "serial",
@@ -31,11 +42,27 @@ def normalize_hostname(hostname: str) -> str:
     h = (hostname or "").strip().lower().rstrip(".")
     if not h or h.startswith("_") or re.fullmatch(r"[\d.]+", h):  # PTR = IP o nombre sintético no identifican
         return ""
-    return h.split(".")[0]
+    h = h.split(".")[0]
+    if _SYNTHETIC_HOSTNAME.fullmatch(h):
+        return ""
+    return h
+
+
+def is_weak_identity_mac(mac: str) -> bool:
+    """MAC localmente administrada (privada/aleatoria) que sí puede servir como clave DÉBIL.
+
+    No identifica en el sentido fuerte (el mismo equipo la cambia al cambiar de red o al rotar),
+    pero una coincidencia exacta de 46 bits aleatorios es el mismo aparato: usarla para CASAR solo
+    puede juntar lo que ya era uno; lo que no puede es garantizar que lo encuentre. Va después de
+    serie, MAC universal y hostname, y fuera quedan las derivadas (Docker).
+    """
+    mac = normalize_mac(mac)
+    return (bool(mac) and mac not in JUNK_MACS and is_locally_administered(mac)
+            and not mac.startswith(DETERMINISTIC_LOCAL_MAC_PREFIXES))
 
 
 def identity_keys(serial: str = "", macs: list[str] = (), hostname: str = "") -> list[str]:
-    """Claves fuertes en orden de prioridad: serie > MAC universal > hostname."""
+    """Claves en orden de prioridad: serie > MAC universal > hostname > MAC local (débil)."""
     keys = []
     if s := normalize_serial(serial):
         keys.append(f"serial:{s}")
@@ -45,6 +72,9 @@ def identity_keys(serial: str = "", macs: list[str] = (), hostname: str = "") ->
             keys.append(f"mac:{mac}")
     if h := normalize_hostname(hostname):
         keys.append(f"host:{h}")
+    for mac in macs:
+        if is_weak_identity_mac(mac):
+            keys.append(f"localmac:{normalize_mac(mac)}")
     return keys
 
 

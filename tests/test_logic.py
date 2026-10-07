@@ -122,11 +122,19 @@ def test_reconcile_serial_beats_mac():
     assert set(a2.macs) == {"00:1a:2b:00:00:01", "00:1a:2b:00:00:02"}
 
 
-def test_reconcile_random_mac_not_identity():
+def test_reconcile_random_mac_is_weak_identity():
+    """Contrato cambiado (0.4.2): la misma MAC privada vista en otra IP ES el mismo equipo
+    (46 bits aleatorios iguales no son dos aparatos). Lo que sigue sin garantizarse es lo
+    contrario: el equipo puede cambiar de MAC privada y entonces lo salva el hostname."""
     rec = Reconciler([])
-    rec.merge(Observation(ip="10.0.0.20", mac="da:a1:19:00:00:01"))
-    _, new = rec.merge(Observation(ip="10.0.0.21", mac="da:a1:19:00:00:01"))
-    assert new  # MAC aleatoria no fusiona
+    a, _ = rec.merge(Observation(ip="10.0.0.20", mac="da:a1:19:00:00:01"))
+    b, new = rec.merge(Observation(ip="10.0.0.21", mac="da:a1:19:00:00:01"))
+    assert not new and b.id == a.id
+    assert a.fingerprint == "localmac:da:a1:19:00:00:01"  # mejor huella que la IP (DHCP)
+    # Docker: 02:42:<ip> se repite entre hosts → sigue sin fusionar
+    rec.merge(Observation(ip="172.17.0.2", mac="02:42:ac:11:00:02"))
+    _, new = rec.merge(Observation(ip="172.17.0.3", mac="02:42:ac:11:00:02"))
+    assert new
 
 
 def test_reconcile_respects_locked_type():
@@ -164,3 +172,37 @@ def test_synthetic_hostname_is_not_identity():
 def test_junk_macs_never_identify():
     from iureti_discovery.reconcile import identity_keys
     assert identity_keys("", ["00:00:00:00:00:00", "FF-FF-FF-FF-FF-FF", "00:1a:2b:3c:4d:5e"], "") == ["mac:00:1a:2b:3c:4d:5e"]
+
+
+def test_local_mac_is_a_weak_key_after_the_strong_ones():
+    """Caso real (INST-002, oct-2026): una MacBook con dirección privada 7a:7a:… se vio como
+    «MAC-4C0ED6» (NetBIOS) un día y «MacBook-Air-de-Sofia» (mDNS) al siguiente y salió dos veces."""
+    from iureti_discovery.reconcile import identity_keys, normalize_hostname
+    assert identity_keys("", ["7a:7a:6b:63:3a:c4"], "MacBook-Air-de-Sofia") == [
+        "host:macbook-air-de-sofia", "localmac:7a:7a:6b:63:3a:c4"]
+    # la serie y la MAC universal siguen primero; la local va al final
+    assert identity_keys("SN1", ["7a:7a:6b:63:3a:c4", "00:1a:2b:3c:4d:5e"], "pc")[:3] == [
+        "serial:SN1", "mac:00:1a:2b:3c:4d:5e", "host:pc"]
+    # Docker deriva la MAC de la IP: se repite entre hosts, no es clave ni débil
+    assert identity_keys("", ["02:42:ac:11:00:02"], "") == []
+    # el nombre NetBIOS sintético de macOS no identifica (el mDNS sí)
+    assert normalize_hostname("MAC-4C0ED6") == ""
+    assert normalize_hostname("MAC-4C0ED6.local") == ""
+    assert normalize_hostname("macbook-pro") == "macbook-pro"
+
+
+def test_same_private_mac_with_new_hostname_is_the_same_asset():
+    from iureti_discovery.models import Observation
+    from iureti_discovery.reconcile import Reconciler
+    rec = Reconciler([])
+    a, nuevo = rec.merge(Observation(ip="192.168.1.75", mac="7a:7a:6b:63:3a:c4",
+                                     netbios={"name": "MAC-4C0ED6"}, mdns={"host": "MacBook-Air-de-Sofia"}))
+    assert nuevo and a.hostname == "MacBook-Air-de-Sofia", "el nombre mDNS gana al NetBIOS sintético"
+    b, nuevo = rec.merge(Observation(ip="192.168.1.90", mac="7a:7a:6b:63:3a:c4", mdns={"host": "MacBook-Air-de-Sofia-2"}))
+    assert not nuevo and b.id == a.id, "misma MAC privada con otro nombre y otra IP: el mismo equipo"
+    assert b.fingerprint == "host:macbook-air-de-sofia-2"
+    c, nuevo = rec.merge(Observation(ip="192.168.1.91", mac="7a:7a:6b:63:3a:c4"))
+    assert not nuevo and c.id == a.id
+    # solo MAC privada y sin nombre: la huella es la MAC local, no la IP (que es DHCP)
+    d, _ = rec.merge(Observation(ip="10.0.0.5", mac="96:9e:f1:11:4d:33"))
+    assert d.fingerprint == "localmac:96:9e:f1:11:4d:33"

@@ -212,8 +212,14 @@ también estos y la foto.
   mantener `last_seen_at` al día: con el límite de 120 lotes/h caben 60 000 activos por hora.
 - `enroll` valida con el heartbeat, no con `/discovery/ping` (se puede dejar `ping` para otros usos).
 - Hostnames de celulares: `Android_XXXXXXXX` (nombre mDNS de Android) — sí identifica al equipo.
-- La MAC de celulares es **privada** (localmente administrada) y no identifica; es estable por red, pero
-  la regla común (no identifica) se mantiene.
+- La MAC de celulares y de las Mac/Windows modernas es **privada** (localmente administrada). Desde
+  0.4.2 es **clave débil**, en ambos lados: va después de serie, MAC universal y hostname, y una
+  coincidencia exacta casa (`localmac:<mac>`). Lo que no garantiza es encontrar al equipo cuando
+  rota o cambia de red; ahí lo salva el hostname. Quedan fuera las MAC locales **derivadas**
+  (Docker `02:42:<ip>`, que se repiten entre hosts).
+- El nombre NetBIOS sintético de macOS (`MAC-xxxxxx`, cuando el nombre real no cabe en SMB) **no
+  identifica** y no gana al nombre mDNS: una Mac vista así un día y por mDNS al siguiente salía
+  dos veces (INST-002, oct-2026).
 
 ---
 
