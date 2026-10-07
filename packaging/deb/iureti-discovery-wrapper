@@ -10,7 +10,7 @@ conf() { sed -n "s/^[[:space:]]*$1=[\"']\{0,1\}\([^\"' ]*\).*/\1/p" /etc/default
 BIN=/opt/iureti/venv/bin/iureti-discovery
 
 if [ "$(id -u)" = 0 ]; then
-    exec runuser -u iureti -- env IURETI_HOST="${IURETI_HOST:-}" IURETI_PORT="${IURETI_PORT:-}" "$BIN" "$@"
+    exec runuser -u iureti -- env IURETI_HOST="${IURETI_HOST:-127.0.0.1}" IURETI_PORT="${IURETI_PORT:-8765}" "$BIN" "$@"
 fi
 if [ "$(id -un)" != iureti ] && [ -e "$IURETI_DB" ] && [ ! -w "$IURETI_DB" ]; then
     echo "iureti-discovery: la base del servicio es del usuario iureti; usa: sudo iureti-discovery $*" >&2

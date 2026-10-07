@@ -109,3 +109,15 @@ def test_schedule_due(rt):
     assert agent.schedule_due()  # ya pasó una hora
     agent.now = lambda: now + timedelta(hours=3)
     assert not agent.schedule_due()  # fuera de la ventana
+
+
+def test_cli_accepts_empty_host_and_port_from_environment(monkeypatch):
+    """El wrapper del .deb exporta IURETI_HOST/IURETI_PORT vacíos cuando /etc/default no los fija
+    (rompió el release v0.5.0 en la prueba de instalación limpia)."""
+    from iureti_discovery.cli import build_parser
+    monkeypatch.setenv("IURETI_HOST", "")
+    monkeypatch.setenv("IURETI_PORT", "")
+    args = build_parser().parse_args(["serve"])
+    assert (args.host, args.port) == ("127.0.0.1", 8765)
+    monkeypatch.setenv("IURETI_PORT", "9000")
+    assert build_parser().parse_args(["serve"]).port == 9000

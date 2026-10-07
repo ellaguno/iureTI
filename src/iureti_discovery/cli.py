@@ -248,15 +248,16 @@ def cmd_oui_update(args) -> None:
         sys.exit(str(exc))
 
 
-def main(argv: list[str] | None = None) -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="iureti-discovery", description="Sonda de autodescubrimiento de recursos de TI")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--db", help="Ruta de la base SQLite (por omisión ~/.local/share/iureti-discovery/iureti.db)")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("serve", help="Inicia la interfaz web local")
-    p.add_argument("--host", default=os.environ.get("IURETI_HOST", "127.0.0.1"))
-    p.add_argument("--port", type=int, default=int(os.environ.get("IURETI_PORT", "8765")))
+    # «or»: el wrapper del .deb puede pasar IURETI_HOST/IURETI_PORT vacíos cuando /etc/default no los fija
+    p.add_argument("--host", default=os.environ.get("IURETI_HOST") or "127.0.0.1")
+    p.add_argument("--port", type=int, default=int(os.environ.get("IURETI_PORT") or 8765))
     p.add_argument("--open", action="store_true", help="Abre el navegador")
     p.add_argument("--agent", action="store_true", help="Modo servicio: heartbeat con iurefficient y escaneos programados")
     p.set_defaults(func=cmd_serve)
@@ -312,6 +313,11 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("oui-update", help="Descarga la base de fabricantes (IEEE)")
     p.set_defaults(func=cmd_oui_update)
 
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)
 
