@@ -1,0 +1,4 @@
+Escaneo: elige los rangos y sigue cada fase
+Inventario clasificado, con su estado en Iurefficient
+Ficha del activo: producto, datos SNMP y motivos
+Configuración: conexión con Iurefficient, escaneos y SNMP
